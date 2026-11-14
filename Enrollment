@@ -1,0 +1,1 @@
+Enrollment is a factory-only path: first boot, PUF read, helper fused to OTP, enroll_done fuse blown, JTAG then locked. A die that fails reconstruction 3× in a row is marked scrap — that is the yield number to track, and 5 % BER dies will fail, which is why you bin.
