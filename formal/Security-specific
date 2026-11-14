@@ -1,0 +1,5 @@
+P1, P2, P4, P8, P9, P10, P11 prove unbounded via PDR. P6/P7 need depth 64 and are proven by k-induction with the PCR array abstracted to 16×8 bits (full 256-bit array blows the SMT solver; bit-slice equivalence is checked separately against the concrete model).
+Security-specific formal, not expressible in SVA — checked by taint analysis:
+Every path from uds/cdi/key_out to a pad passes through a register. No combinational leak.
+No path from key_out to prdata without pcr_sel-qualified read gating.
+ECDSA ladder: prove the double-and-add branch count is data-independent (constant-time).
