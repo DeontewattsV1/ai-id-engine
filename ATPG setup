@@ -1,0 +1,11 @@
+set_dft_signal -view existing_dft -type ScanClock   -port scan_clk  -timing {45 55}
+set_dft_signal -view existing_dft -type Reset       -port presetn   -active_state 0
+set_dft_signal -view existing_dft -type ScanEnable  -port scan_en   -active_state 1 -view spec
+set_dft_signal -view existing_dft -type TestMode    -port test_mode -active_state 1 -view spec
+set_scan_configuration -chain_count 200 -clock_mixing mix_clocks
+set_scan_path chain_secure -scan_enable scan_secure -chain_count 8
+set_dft_configuration -fix_clock enable -fix_set enable -fix_reset enable
+# Do not scan the PUF bias network
+set_scan_element false [get_cells u_puf/*]
+# Zeroize net must stay single-stage in test too
+set_dft_signal -view existing_dft -type Constant -port zeroize_clear
