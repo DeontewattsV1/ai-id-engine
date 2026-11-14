@@ -1,0 +1,16 @@
+[Unit]
+Description=AI identity attestation daemon
+After=id-engine.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/attd --verifier https://verify.internal/attest
+Restart=always
+RestartSec=5
+RuntimeDirectory=attd
+# Never run before the measurement chain completes
+ExecStartPre=/usr/libexec/attd-selftest
+
+[Install]
+WantedBy=multi-user.target
