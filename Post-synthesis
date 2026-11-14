@@ -1,0 +1,3 @@
+Post-synthesis: expect WNS +0.31 ns at SS/0.72V/125 °C. If short, add one more stage on bsig0 (the t2 path) and re-run. Do not relax the clock; the margin is the point.
+Hold closure is the harder problem on a block with 4 096 PCR flops on a single extend enable. Mitigation: PCR bank uses a locally-generated one-hot write strobe decoded from sel, not a global enable. Skew target 150 ps, met by a dedicated clock spine over the bank.
+CDC: three crossings only — puf_clk → pclk (UDS, 256 bits, quasi-static after settle), se_sck → pclk (SPI, per-bit 2-FF sync), pclk → se_sck (MOSI, handshake). UDS uses a bundled-data handshake (uds_valid toggled from PUF domain, 2-FF synced, 256-bit bus captured on the synced edge) — not per-bit 2-FF, because per-bit sync would tear the key.
