@@ -1,0 +1,11 @@
+Masking budget for the two leaking blocks:
+| Block | Leak | Countermeasure | Cost |
+| --- | --- | --- | --- |
+| ECDSA ladder | Hamming weight of field elements | Boolean-share the coordinate registers, d=2 | +18 % area, 2× mul latency |
+| BCH Chien | weight of `sigma` | Mask `sigma`, unmask only the error-position bit | +6 % area |
+| Mont multiply | `a_i * b_j` partial products | Widen to 2-share; recompute with fresh random each op | +11 % area |
+Masked mont_mul sketch — the only real change is that a and b arrive as (a0,a1), (b0,b1) with a0^a1 == a, and the partial products are recombined after the accumulator rather than before:
+wire [31:0] ap = (ta0[32*i +: 32] * tb0[32*j +: 32]) ^
+                     (ta0[32*i +: 32] * tb1[32*j +: 32]) ^
+                     (ta1[32*i +: 32] * tb0[32*j +: 32]);
+Fresh randomness comes from the TRNG, one 32-bit word per multiply. Do not reuse.
