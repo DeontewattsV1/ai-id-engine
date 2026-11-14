@@ -1,0 +1,7 @@
+The one real critical path is the SHA-256 round. Naive it is:
+rot(3) → XOR tree → 4-input CPA → 5-input CPA ≈ 1.9 ns at 22FDX SS, before wire. Tight at 4 ns but leaves nothing for routing.
+Fix, in order of preference:
+Precompute k+w. w is available from the message schedule one cycle early. Register kw[round] in a shadow array. Removes one addend from the round CPA.
+Carry-save the rest. t1 = CSA(hh, bsig1(e), Ch(e,f,g), kw) → CSA gives (sum, carry) in 3 XOR levels; only one final CPA at the end of the round. 4-input CPA becomes 3:2 compressor + 2-input CPA.
+Two-stage round. Split at the CSA output. Latency doubles to 128 cycles/block — 2 blocks per 512-bit extend at 250 MHz = 1.02 µs per measurement block. Acceptable.
+Retime the Ch term. Ch(e,f,g) = g ^ (e & (f^g)) — precompute f^g in the previous round.
