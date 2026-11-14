@@ -1,0 +1,1 @@
+Note the sel_q capture — extending PCR 3 while sel flips to 5 mid-hash must not land the result in PCR 5. That is a real bug class and P1 catches it.
