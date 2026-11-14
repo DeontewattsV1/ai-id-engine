@@ -1,0 +1,9 @@
+| Metric | Gate |
+| --- | --- |
+| worst intra-die HD | < 128 bits (5.5 %) |
+| inter-die mean HD | > 800 bits (39 %) |
+| separability margin | > 200 bits |
+| MCV min-entropy | > 0.35 bits/cell |
+| stable cells | > 99.3 % across 1 000 boots |
+
+If intra-die worst exceeds 128, raise to BCH(2047, 575, t=160) and cut the key to 575 bits. If min-entropy is under 0.30 bits/cell, the array is too small — go to 4 095 cells with t=256.
