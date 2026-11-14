@@ -1,0 +1,11 @@
+(ARM / RISC-V)
+id_engine: id-engine@40010000 {
+    compatible = "venice,id-engine-v1";
+    reg = <0x00 0x40010000 0x00 0x1000>;
+    interrupts = <GIC_SPI 47 IRQ_TYPE_LEVEL_HIGH>;
+    clocks = <&clk_periph>;
+    clock-names = "pclk";
+    dmas = <&dmac 7>;
+    dma-names = "measure";
+    status = "okay";
+};
