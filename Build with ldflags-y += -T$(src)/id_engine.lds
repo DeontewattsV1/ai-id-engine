@@ -1,0 +1,1 @@
+Build with ldflags-y += -T$(src)/id_engine.lds in the module Makefile. The driver now measures exactly its own pages, which is what PCR3 should mean — the old code hashed _stext twice and captured the kernel twice.
