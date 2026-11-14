@@ -1,0 +1,1 @@
+g[mm_dst] needs a declaration — add reg [3:0] mm_dst; and assign it in step_mul. Note the double branch reuses g[11] for the ×3 before squaring; that is intentional and pipelined.
