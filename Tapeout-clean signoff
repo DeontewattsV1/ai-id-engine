@@ -1,0 +1,14 @@
+| Gate | Target | Blocking |
+| --- | --- | --- |
+| WNS (all corners) | ≥ 0.000 ns | yes |
+| TNS | 0 | yes |
+| Max transition/cap violations | 0 | yes |
+| Setup/hold at SS/FF, 0.72V–1.05V, −40/125 °C | clean | yes |
+| Stuck-at coverage | ≥ 99.5 % | yes |
+| Transition-delay coverage | ≥ 95 % | yes |
+| Bridging coverage | ≥ 92 % | yes |
+| Formal: all SVA `assert` proven, k ≥ 64 | 0 cex | yes |
+| Formal: all `cover` reachable | 100 % | yes |
+| CDC crossings | 0 unsynchronized | yes |
+| Zeroize latency | ≤ 3 pclk | yes |
+| Leakage: key bus to I/O | 0 combinational paths | yes |
