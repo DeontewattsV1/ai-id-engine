@@ -1,0 +1,9 @@
+Rules:
+All non-key flops: full scan, EDT-compressed, 200× chain count. Stuck-at and TDF ATPG here.
+Key-bearing flops (key_out, alias_key, cdi, uds, secret_out): dedicated uncompressed chains. Reason: compressed scan plus X-sources make key state unobservable, and you need to read out post-zeroize state to prove zeroize works.
+Key flops get set_scan_enable gated by scan_secure: in mission mode, shifting is blocked so the JTAG port can't be used as a key oracle. scan_secure is fused in OTP at production.
+MBIST: March C− over the key SRAM, address and data both checked. Runs at boot, 4 096 cycles. Failure → IE_REG_STATUS.err, boot refuses to release keys.
+LBIST: 8 PRPG/MISR pairs, 20 000 patterns, signature compared against a fused golden. Catches latent defects on the 20 % of the block scan can't reach well (the CSA tree, the ECDSA ladder).
+TRNG health tests in silicon, not software: SP 800-90B repetition-count and adaptive-proportion, wired to err. A dead TRNG must fail closed, not silently emit constants.
+Boundary scan on all package pins, 1149.1-compliant, for board test.
+JTAG lock: OTP bit jtag_lock disables the TAP after production. Recovery via a challenge-response on the secure element, not a fuse re-blow.
