@@ -1,0 +1,8 @@
+[tasks.prove]
+mode = prove
+depth = 40
+engines = ["abc pdr", "smtbmc boolector"]
+[options]
+files = ["rtl/fuzzy_extract.v", "rtl/bch_enc.v", "rtl/bch_dec.v", "rtl/gf_mult.v",
+         "formal/fuzzy_extract_bind.sv"]
+top = fuzzy_extract
