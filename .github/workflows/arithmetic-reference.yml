@@ -9,6 +9,8 @@ on:
       - 'tools/gen_bch_poly.py'
       - 'test/bch_roundtrip.py'
       - 'test/test_montgomery.py'
+      - 'test/puf_characterize.py'
+      - 'test/puf_characterize_test.py'
       - 'test/gen_rtl_vectors.py'
       - 'tb/tb_bch_enc.sv'
       - 'tb/tb_mont_mul.sv'
@@ -36,5 +38,7 @@ jobs:
         run: |
           iverilog -g2012 -I rtl -s tb_fp_inv -o /tmp/ai-id-tb-inv rtl/mont_mul.v rtl/fp_ops.v tb/tb_fp_inv.sv
           vvp /tmp/ai-id-tb-inv
+      - name: PUF characterization boundary/unit checks (no silicon evidence)
+        run: PYTHONPATH=test python3 test/puf_characterize_test.py
       - name: Assert ROM deterministic
         run: git diff --exit-code -- rtl/bch_g.mem rtl/alpha_pow.mem
