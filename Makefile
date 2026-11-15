@@ -9,16 +9,16 @@ obj_dir/Vid_engine_top: tb/tb_id_engine.cpp $(RTL)
 	  -Wno-fatal -Wno-lint -Wno-UNOPTFLAT \
 	  --top-module id_engine_top \
 	  -CFLAGS "-O2 -DVERILATOR" -LDFLAGS "-lcrypto" \
-	  $(RTL) tb/tb_id_engine.cpp -o Vid_engine_top
+	  -Irtl $(RTL) tb/tb_id_engine.cpp -o Vid_engine_top
 
 sim: obj_dir/Vid_engine_top
 	./obj_dir/Vid_engine_top
 
 lint:
-	$(VERILATOR) --lint-only -Wall $(RTL) --top-module id_engine_top
+	$(VERILATOR) --lint-only -Wall -Irtl $(RTL) --top-module id_engine_top
 
 cov:
-	$(VERILATOR) --cc --exe --build --coverage $(RTL) tb/tb_id_engine.cpp
+	$(VERILATOR) --cc --exe --build --coverage -Irtl $(RTL) tb/tb_id_engine.cpp
 	./obj_dir/Vid_engine_top && verilator_coverage --annotate cov/ logs/*.dat
 
 formal:

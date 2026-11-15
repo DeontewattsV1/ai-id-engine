@@ -1,4 +1,4 @@
-syndrome → Berlekamp–Massey → Chien → error positions.
+// syndrome → Berlekamp–Massey → Chien → error positions.
 // SPDX-License-Identifier: MIT
 `timescale 1ns/1ps
 

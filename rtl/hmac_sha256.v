@@ -1,4 +1,4 @@
-KDF for the key ladder
+// KDF for the key ladder
 // SPDX-License-Identifier: MIT
 // HMAC-SHA256(key, msg). msg <= 64 bytes. One-shot, ~3 block ops.
 `timescale 1ns/1ps

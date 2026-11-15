@@ -1,4 +1,4 @@
- control plane
+// control plane
 // SPDX-License-Identifier: MIT
 // APB3 slave. Decodes register writes into module strobes.
 `timescale 1ns/1ps
