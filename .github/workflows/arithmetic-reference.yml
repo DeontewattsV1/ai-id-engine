@@ -11,6 +11,8 @@ on:
       - 'test/test_montgomery.py'
       - 'test/puf_characterize.py'
       - 'test/puf_characterize_test.py'
+      - 'test/tvla.py'
+      - 'test/tvla_test.py'
       - 'test/gen_rtl_vectors.py'
       - 'tb/tb_bch_enc.sv'
       - 'tb/tb_mont_mul.sv'
@@ -40,5 +42,9 @@ jobs:
           vvp /tmp/ai-id-tb-inv
       - name: PUF characterization boundary/unit checks (no silicon evidence)
         run: PYTHONPATH=test python3 test/puf_characterize_test.py
+      - name: Synthetic TVLA harness validation (NOT a silicon assessment)
+        run: |
+          python3 -m pip install --quiet 'numpy>=1.26,<3'
+          PYTHONPATH=test python3 test/tvla_test.py
       - name: Assert ROM deterministic
         run: git diff --exit-code -- rtl/bch_g.mem rtl/alpha_pow.mem
