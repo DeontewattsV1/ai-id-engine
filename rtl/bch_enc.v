@@ -1,43 +1,42 @@
-systematic LFSR division
 // SPDX-License-Identifier: MIT
-// g(x) coefficient ROM loaded from bch_g.mem (1408 entries, 11-bit).
 `timescale 1ns/1ps
-
+// Systematic binary BCH(2047,639), designed t=171.
+// g(x) is monic degree 1408, represented as one 1409-bit hex word.
+// Encodes message polynomial MSB first; codeword is {msg, parity}.
 module bch_enc (
     input  wire         clk, rst_n, start,
     input  wire [638:0] msg,
     output reg  [1407:0] parity,
     output reg          done
 );
-    reg [10:0] lfsr [0:127];   // 128-stage pipelined LFSR
-    reg [1407:0] g;            // generator, packed 128 coeffs
-    reg [1:0] st;
-    reg [10:0] fb;
-    integer i, rnd;
-
-    initial $readmemh("bch_g.mem", g);
+    reg [1408:0] g_rom [0:0];
+    initial $readmemh("rtl/bch_g.mem", g_rom);
+    wire [1407:0] g_lower = g_rom[0][1407:0];
+    reg [638:0] latched_msg;
+    reg [9:0] index;
+    reg [1:0] state;
+    localparam [1:0] IDLE=0, SHIFT=1, FINISH=2;
+    wire feedback = parity[1407] ^ latched_msg[638-index];
 
     always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin st <= 0; done <= 0; end
-        else begin
+        if (!rst_n) begin
+            state <= IDLE; done <= 0; parity <= 0;
+            latched_msg <= 0; index <= 0;
+        end else begin
             done <= 0;
-            case (st)
-                0: if (start) begin
-                       for (i = 0; i < 128; i = i + 1) lfsr[i] <= 0;
-                       rnd <= 0; st <= 1;
-                   end
-                1: begin
-                       for (i = 0; i < 128; i = i + 1) begin
-                           fb = lfsr[i] ^ (i < 11 ? msg[638 - (rnd*11 + i)] : 1'b0);
-                           lfsr[i] <= lfsr[i+1] ^ gf_mult(fb, g[i*11 +: 11]);
-                       end
-                       if (rnd == 57) st <= 2; else rnd <= rnd + 1;
-                   end
-                2: begin
-                       for (i = 0; i < 128; i = i + 1)
-                           parity[i*11 +: 11] <= lfsr[i];
-                       done <= 1; st <= 0;
-                   end
+            case (state)
+                IDLE: if (start) begin
+                    latched_msg <= msg; parity <= 0;
+                    index <= 0; state <= SHIFT;
+                end
+                SHIFT: begin
+                    parity <= {parity[1406:0], 1'b0} ^
+                              (feedback ? g_lower : 1408'd0);
+                    if (index == 10'd638) state <= FINISH;
+                    else index <= index + 1'b1;
+                end
+                FINISH: begin done <= 1; state <= IDLE; end
+                default: state <= IDLE;
             endcase
         end
     end

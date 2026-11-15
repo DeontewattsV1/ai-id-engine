@@ -1,9 +1,30 @@
-COSE_Sign1 EAT emitter
 // SPDX-License-Identifier: MIT
-// Assembles an EAT/CBOR claim set, hands to ECDSA-P256, streams out.
-// ECDSA core is a hardened scalar-mult instance (see note below).
 `timescale 1ns/1ps
-
+// Research safety gate: the existing EAT/COSE/signature path is not validated.
+// The default hardware must never stream an unsigned or forged attestation.
+// UNSAFE_EXPERIMENTAL_QUOTE_ONLY is forbidden in production.
+`ifndef UNSAFE_EXPERIMENTAL_QUOTE_ONLY
+module quote_signer (
+    input wire clk,rst_n,sign_start,
+    input wire [255:0] alias_key,nonce,model_digest,config_digest,
+    input wire [4095:0] pcr_flat,
+    input wire [63:0] timestamp,
+    output reg [7:0] fifo_data,
+    output reg fifo_valid,
+    output reg [15:0] quote_len,
+    output reg done,err
+);
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            fifo_data <= 0; fifo_valid <= 0; quote_len <= 0;
+            done <= 0; err <= 1;
+        end else begin
+            fifo_data <= 0; fifo_valid <= 0; quote_len <= 0;
+            done <= 0; err <= 1; // fail closed; no quote is issued
+        end
+    end
+endmodule
+`else
 module quote_signer (
     input  wire         clk,
     input  wire         rst_n,
@@ -77,3 +98,5 @@ module quote_signer (
         end
     end
 endmodule
+
+`endif

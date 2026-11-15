@@ -1,106 +1,95 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Generate g(x) for BCH(2047, 639, t=128) over GF(2^11), p(x)=x^11+x^2+1.
-Emit rtl/bch_g.mem and rtl/alpha_pow.mem."""
+"""Reproducible primitive narrow-sense binary BCH construction.
 
-M, N, T = 11, 2047, 128
-PRIM = (1 << 11) | (1 << 2) | 1        # x^11 + x^2 + 1
+Default: BCH(2047,639), 1408 parity bits, designed t=171.
+The previously stated t=128 yields degree 1232, not 1408.
+bch_g.mem contains ONE 1409-bit hex word, alpha_pow.mem 2047 words.
+"""
+import argparse
+from pathlib import Path
+M=11; N=(1<<M)-1; T=171; K=639; PARITY_BITS=N-K
+PRIM=(1<<M)|(1<<2)|1
 
-def gf_mul(a, b):
-    r = 0
+def gf_mul(a,b):
+    result=0
     for _ in range(M):
-        if b & 1: r ^= a
-        b >>= 1
-        a <<= 1
-        if a & (1 << M): a ^= PRIM
-    return a & (N)
+        if b&1: result^=a
+        b>>=1; a<<=1
+        if a&(1<<M): a^=PRIM
+    return result&N
 
-def gf_pow(a, e):
-    r = 1
-    while e:
-        if e & 1: r = gf_mul(r, a)
-        a = gf_mul(a, a); e >>= 1
-    return r
-
-alpha = 2
-# alpha must be primitive; verify order is 2047
-assert gf_pow(alpha, N) == 1 and all(gf_pow(alpha, N // q) != 1 for q in (23, 89))
-
-minpoly_cache = {}
-def minimal_poly(el):
-    if el in minpoly_cache: return minpoly_cache[el]
-    conj, x = set(), el
-    for _ in range(M):
-        conj.add(x); x = gf_mul(x, x)
-    poly = 1                              # multiply out prod (X - c)
-    for c in conj:
-        nxt = 0
-        for i in range(M + 1):
-            if (poly >> i) & 1:
-                nxt ^= (1 << i) | (gf_mul(c, 1) << i) if False else 0
-        # simple convolution with (X + c)
-        newp = 0
-        for i in range(M + 1):
-            if (poly >> i) & 1:
-                newp ^= (1 << (i + 1)) ^ (c << i)
-        poly = newp
-    minpoly_cache[el] = poly
-    return poly
-
-# g = lcm of minimal polys of alpha^1 .. alpha^(2t)
-g = 1
-for i in range(1, 2 * T + 1):
-    mp = minimal_poly(gf_pow(alpha, i))
-    # poly gcd in GF(2)[X]
-    a, b = g, mp
-    while b:
-        # polynomial mod
-        while a.bit_length() >= b.bit_length():
-            a ^= b << (a.bit_length() - b.bit_length())
-        a, b = b, a
-    g = g * mp // 1
-    # lcm = g*mp/gcd -> recompute properly below
-
-# recompute cleanly
-def pgcd(a, b):
-    while b:
-        while a.bit_length() >= b.bit_length() and a:
-            a ^= b << (a.bit_length() - b.bit_length())
-        a, b = b, a
-    return a
-
-g = 1
-for i in range(1, 2 * T + 1):
-    mp = minimal_poly(gf_pow(alpha, i))
-    d = pgcd(g, mp)
-    # poly divide g by d
-    q, r, a = 0, 0, g
-    while a.bit_length() >= d.bit_length():
-        sh = a.bit_length() - d.bit_length()
-        q ^= 1 << sh
-        a ^= d << sh
-    g = q * mp
-
-deg = g.bit_length() - 1
-print(f"deg(g) = {deg}  (expect {M * T} = {M*T})")
-assert deg == M * T
-for i in range(1, 2 * T + 1):
-    assert g != 0 and all(False for _ in ()) or True
-    # verify alpha^i is a root: evaluate
-    acc = 0
-    for j in range(deg + 1):
-        if (g >> j) & 1: acc ^= gf_pow(alpha, i * j)
-    assert acc == 0, f"alpha^{i} not a root"
-print("all 2t roots verified")
-
-# emit 11-bit coefficient words, MSB (x^1408) first
-with open("rtl/bch_g.mem", "w") as f:
-    for i in range(deg, -1, -1):
-        f.write(f"{(g >> i) & 0x7FF:03x}\n")
-
-with open("rtl/alpha_pow.mem", "w") as f:
-    v = 1
+def powers():
+    result=[]; x=1
     for _ in range(N):
-        f.write(f"{v:03x}\n")
-        v = gf_mul(v, alpha)
-print("wrote rtl/bch_g.mem (1409 entries), rtl/alpha_pow.mem (2047 entries)")
+        result.append(x)
+        x=gf_mul(x,2)
+    if x!=1 or len(set(result))!=N:
+        raise ValueError("alpha not primitive")
+    return result
+
+def cosets(t):
+    seen=set(); result=[]
+    for i in range(1,2*t+1):
+        if i in seen: continue
+        orbit=[]; j=i
+        while j not in seen:
+            seen.add(j); orbit.append(j); j=2*j%N
+        result.append(tuple(orbit))
+    return result
+
+def minimal_poly(exponents,apow):
+    coeffs=[1]
+    for i in exponents:
+        root=apow[i]; nxt=[0]*(len(coeffs)+1)
+        for j,c in enumerate(coeffs):
+            nxt[j]^=gf_mul(c,root); nxt[j+1]^=c
+        coeffs=nxt
+    if any(c not in (0,1) for c in coeffs):
+        raise AssertionError("minimal polynomial is not binary")
+    return sum(c<<i for i,c in enumerate(coeffs))
+
+def gf2_poly_mul(a,b):
+    result=0
+    while b:
+        if b&1: result^=a
+        a<<=1; b>>=1
+    return result
+
+def generator(t=T,alpha_pow=None):
+    if not 1<=t<=N//2: raise ValueError("invalid strength")
+    if alpha_pow is None: alpha_pow=powers()
+    g=1
+    for orbit in cosets(t):
+        g=gf2_poly_mul(g,minimal_poly(orbit,alpha_pow))
+    return g
+
+def verify(g,t,apow):
+    deg=sum(len(x) for x in cosets(t))
+    if g.bit_length()-1!=deg or (g&1)!=1:
+        raise AssertionError("wrong generator degree or constant")
+    for i in range(1,2*t+1):
+        x=apow[i%N]; val=0
+        for j in range(deg,-1,-1):
+            val=gf_mul(val,x)^((g>>j)&1)
+        if val: raise AssertionError(f"root alpha^{i} does not vanish")
+
+def write_roms(out,t=T):
+    apow=powers(); g=generator(t,apow)
+    verify(g,t,apow)
+    degree=g.bit_length()-1
+    out.mkdir(parents=True,exist_ok=True)
+    (out/"bch_g.mem").write_text(f"{g:0{(degree+4)//4}x}\n",encoding="ascii")
+    (out/"alpha_pow.mem").write_text("".join(f"{x:03x}\n" for x in apow),encoding="ascii")
+    return degree
+
+def main():
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--out-dir",type=Path,default=Path("rtl"))
+    p.add_argument("--t",type=int,default=T)
+    a=p.parse_args()
+    deg=write_roms(a.out_dir,a.t)
+    print(f"BCH n={N}, t={a.t}, degree={deg}, dimension={N-deg}")
+    if a.t==T and deg!=PARITY_BITS:
+        raise AssertionError("RTL width mismatch")
+if __name__=="__main__": main()

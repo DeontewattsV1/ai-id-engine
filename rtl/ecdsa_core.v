@@ -46,8 +46,7 @@ module ecdsa_core (
             case (st)
                 0: if (start) begin
                        // k' = k + rho*n  (320-bit, constant time)
-                       prod = {k_base, 256'b0} + ({256'b0, rho} * N_MOD);
-                       kk <= {prod, k_base} + ({256'b0, rho} * N_MOD);
+                       kk <= {64'b0, k_base} + ({256'b0, rho} * N_MOD);
                        st <= 1;
                    end
                 1: begin   // randomize projective Q
@@ -73,12 +72,12 @@ module ecdsa_core (
                        rx <= rx * inv_r; ry <= ry * inv_r; st <= 8;   // to affine
                    end
                 8: begin
-                       r <= rx % N_MOD;                     // r = Q.x mod n
+                       r <= (rx >= N_MOD) ? rx - N_MOD : rx;                     // r = Q.x mod n
                        inv_in <= k_base; inv_start <= 1; st <= 9;
                    end
                 9: if (inv_done) begin
                        k_inv <= inv_r;
-                       z <= hash % N_MOD;
+                       z <= (hash >= N_MOD) ? hash - N_MOD : hash;
                        st <= 10;
                    end
                 10: begin

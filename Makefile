@@ -30,3 +30,19 @@ fuzz:
 	python3 test/run_fuzz.py
 
 .PHONY: all sim lint cov formal fuzz
+
+
+# Independently scoped correctness gates. These do not sign off the full chip.
+math-oracle:
+	python3 tools/gen_bch_poly.py
+	python3 test/bch_roundtrip.py
+	python3 test/test_montgomery.py
+
+rtl-unit: math-oracle
+	python3 test/gen_rtl_vectors.py
+	iverilog -g2012 -s tb_mont_mul -o /tmp/ai-id-tb-mont rtl/mont_mul.v tb/tb_mont_mul.sv
+	vvp /tmp/ai-id-tb-mont
+	iverilog -g2012 -s tb_bch_enc -o /tmp/ai-id-tb-bch rtl/bch_enc.v tb/tb_bch_enc.sv
+	vvp /tmp/ai-id-tb-bch
+
+.PHONY: math-oracle rtl-unit
