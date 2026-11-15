@@ -1,4 +1,4 @@
-COSE_Sign1 EAT emitter
+// COSE_Sign1 EAT emitter.
 // SPDX-License-Identifier: MIT
 // Assembles an EAT/CBOR claim set, hands to ECDSA-P256, streams out.
 // ECDSA core is a hardened scalar-mult instance (see note below).
@@ -32,7 +32,8 @@ module quote_signer (
     // secp256r1 signer, hardened (constant-time ladder, blinding)
     ecdsa_p256_sign u_ec (
         .clk(clk), .rst_n(rst_n), .start(ec_start),
-        .priv(alias_key), .hash(payload_hash), .done(ec_done), .sig(ec_sig)
+        .priv(alias_key), .hash(payload_hash), .blind_seed(64'b0),
+        .done(ec_done), .sig(ec_sig)
     );
 
     wire [255:0] payload_hash;  // sha256 of payload[0..plen-1]
@@ -41,9 +42,10 @@ module quote_signer (
         if (!rst_n) begin
             state <= 0; done <= 0; err <= 0; fifo_valid <= 0; quote_len <= 0;
         end else begin
-            fifo_valid <= 0; done <= 0;
+            fifo_valid <= 0;
             case (state)
                 0: if (sign_start) begin
+                       done <= 0;
                        plen <= 0;
                        // CBOR map header + claims (abbreviated)
                        payload[0] <= 8'hA6;              // map(6)

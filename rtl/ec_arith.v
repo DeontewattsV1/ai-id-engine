@@ -10,12 +10,29 @@ module ec_arith (
     output reg          done
 );
     reg [255:0] g [0:15];
+    reg [3:0]   mm_dst;
     reg [5:0]   pc;
     reg [1:0]   st;
     reg         mm_start;
     reg [255:0] mm_a, mm_b;
     wire [255:0] mm_r;
     wire         mm_done;
+
+    function automatic [255:0] fp_add(input [255:0] a, b, m);
+        reg [256:0] sum;
+        begin
+            sum = {1'b0, a} + {1'b0, b};
+            fp_add = (sum >= {1'b0, m}) ? sum[255:0] - m : sum[255:0];
+        end
+    endfunction
+
+    function automatic [255:0] fp_sub(input [255:0] a, b, m);
+        reg [256:0] diff;
+        begin
+            diff = {1'b0, a} - {1'b0, b};
+            fp_sub = diff[256] ? diff[255:0] + m : diff[255:0];
+        end
+    endfunction
 
     mont_mul u_mm (.clk(clk), .rst_n(rst_n), .start(mm_start),
                    .a(mm_a), .b(mm_b), .modulus(P_MOD),
@@ -26,7 +43,7 @@ module ec_arith (
 
     // microcode: each step names a destination and a source pair
     task step_mul(input [3:0] dst, input [3:0] s1, input [3:0] s2);
-        begin mm_a <= g[s1]; mm_b <= g[s2]; mm_start <= 1;
+        begin mm_dst <= dst; mm_a <= g[s1]; mm_b <= g[s2]; mm_start <= 1;
               pc <= pc + 1; st <= 1; end
     endtask
 

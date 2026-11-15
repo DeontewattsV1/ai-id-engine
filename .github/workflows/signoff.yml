@@ -6,7 +6,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get install -y verilator yosys sby libssl-dev
+      - uses: YosysHQ/setup-oss-cad-suite@c7845bc0d335c8076aa22047e85972caa8a916df
+        with:
+          version: 2026-11-15
+      - run: sudo apt-get install -y libssl-dev
       - run: make lint
       - run: make sim
       - run: make fuzz

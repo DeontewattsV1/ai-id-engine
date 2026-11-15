@@ -1,4 +1,4 @@
-the measurement primitive
+// SHA-256 measurement primitive.
 // SPDX-License-Identifier: MIT
 // Iterative SHA-256. One 512-bit block per invocation, 64 cycles.
 `timescale 1ns/1ps

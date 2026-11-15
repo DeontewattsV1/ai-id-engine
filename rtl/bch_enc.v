@@ -1,4 +1,4 @@
-systematic LFSR division
+// Systematic LFSR division.
 // SPDX-License-Identifier: MIT
 // g(x) coefficient ROM loaded from bch_g.mem (1408 entries, 11-bit).
 `timescale 1ns/1ps
@@ -14,6 +14,21 @@ module bch_enc (
     reg [1:0] st;
     reg [10:0] fb;
     integer i, rnd;
+
+    function automatic [10:0] gf_mult(input [10:0] a, b);
+        reg [21:0] product;
+        integer bit_index;
+        begin
+            product = 0;
+            for (bit_index = 0; bit_index < 11; bit_index = bit_index + 1)
+                if (b[bit_index])
+                    product = product ^ ({11'b0, a} << bit_index);
+            for (bit_index = 21; bit_index >= 11; bit_index = bit_index - 1)
+                if (product[bit_index])
+                    product = product ^ (22'h805 << (bit_index - 11));
+            gf_mult = product[10:0];
+        end
+    endfunction
 
     initial $readmemh("bch_g.mem", g);
 

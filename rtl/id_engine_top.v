@@ -1,4 +1,4 @@
-top level
+// Top-level identity engine.
 // SPDX-License-Identifier: MIT
 `timescale 1ns/1ps
 
@@ -23,7 +23,7 @@ module id_engine_top (
     wire [255:0] cdi, alias_key;
     wire [255:0] pcr_d, pcr_r, cdi_out, unseal_out;
     wire [4095:0] pcr_flat;
-    wire         pcr_ext, quote_start, cdi_start;
+    wire         pcr_ext, pcr_busy, quote_start, cdi_start;
     wire [3:0]   pcr_sel;
     wire [255:0] pcr_wdata, nonce, cdi_parent, seal_in;
     wire [127:0] cdi_label;
@@ -31,7 +31,11 @@ module id_engine_top (
     wire [1:0]   seal_op;
     wire [7:0]   tamper_sticky;
     wire         zeroize;
-    wire [15:0]  status = {14'b0, quote_done, 1'b1};
+    wire         seal_ok;
+    wire [7:0]   quote_data;
+    wire [15:0]  quote_len;
+    wire         quote_valid, quote_err;
+    wire [15:0]  status = {11'b0, seal_ok, quote_done, 1'b0, pcr_busy, 1'b1};
     wire         quote_done;
 
     // UDS: SRAM PUF, re-derived each power-on, never stored
@@ -53,20 +57,21 @@ module id_engine_top (
     pcr_bank u_pcr (
         .clk(pclk), .rst_n(presetn), .extend(pcr_ext),
         .sel(pcr_sel), .digest_in(pcr_wdata),
-        .digest_out(pcr_r), .flat(pcr_flat)
+        .digest_out(pcr_r), .flat(pcr_flat), .busy(pcr_busy)
     );
 
     seal_unit u_seal (
         .clk(pclk), .rst_n(presetn), .op(seal_op), .policy(seal_policy),
         .pcr_flat(pcr_flat), .secret_in(seal_in),
-        .secret_out(unseal_out), .ok(), .wrapped()
+        .secret_out(unseal_out), .ok(seal_ok), .wrapped()
     );
 
     quote_signer u_q (
         .clk(pclk), .rst_n(presetn), .sign_start(quote_start),
         .alias_key(alias_key), .nonce(nonce), .pcr_flat(pcr_flat),
         .model_digest(pcr_r), .config_digest(256'b0), .timestamp(64'b0),
-        .fifo_data(), .fifo_valid(), .quote_len(), .done(quote_done), .err()
+        .fifo_data(quote_data), .fifo_valid(quote_valid), .quote_len(quote_len),
+        .done(quote_done), .err(quote_err)
     );
 
     tamper_ctrl u_tamper (
@@ -84,6 +89,7 @@ module id_engine_top (
         .o_cdi_label(cdi_label), .o_seal_policy(seal_policy),
         .o_seal_in(seal_in), .o_seal_op(seal_op),
         .i_pcr_read(pcr_r), .i_cdi_out(cdi_out), .i_unseal_out(unseal_out),
-        .i_tamper(tamper_sticky), .i_status(status)
+        .i_tamper(tamper_sticky), .i_quote_len(quote_len),
+        .i_quote_data(quote_data), .i_status(status)
     );
 endmodule
