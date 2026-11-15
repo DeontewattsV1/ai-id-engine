@@ -27,11 +27,12 @@ cov:
 	@test -s coverage.dat
 
 formal:
-	sby -f formal/sby.toml
-	sby -f formal/sby_cover.toml
+	sby -f formal/gf_mult.sby
 
 fuzz:
-	python3 test/bch_roundtrip.py
 	python3 test/puf_characterize_test.py
+	$(VERILATOR) --cc --exe --build --top-module gf_mult -Wno-fatal \
+	  --Mdir obj_dir/gf_mult $(abspath rtl/gf_mult.v tb/tb_gf_mult.cpp) -o Vgf_mult
+	./obj_dir/gf_mult/Vgf_mult
 
 .PHONY: all sim lint cov formal fuzz

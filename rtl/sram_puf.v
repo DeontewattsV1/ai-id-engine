@@ -2,6 +2,7 @@
 `timescale 1ns/1ps
 
 `ifndef SYNTHESIS
+// Deterministic simulation model; synthesis must bind a technology-specific PUF.
 module sram_puf #(
     parameter [255:0] SIM_PUF_VALUE = {
         128'hd6b8e4a19c732f05a2d0c8416e5f397b,

@@ -35,13 +35,17 @@ module apb_regfile (
             o_cdi_start <= 0; o_seal_op <= 0;
 
             if (psel && penable && pwrite) begin
+                if (paddr != 12'h024 && paddr != 12'h060 &&
+                    paddr != 12'h070 && paddr != 12'h080 &&
+                    paddr != 12'h0C4)
+                    wcnt <= 0;
                 case (paddr)
                     12'h020: o_pcr_sel <= pwdata[3:0];
                     12'h024: begin o_pcr_data[255 - 32*wcnt -: 32] <= pwdata;
                                   wcnt <= wcnt + 1; end
                     12'h02C: o_pcr_extend <= pwdata[0];
-                    12'h060: begin o_cdi_label[127 - 32*wcnt -: 32] <= pwdata;
-                                  wcnt <= wcnt + 1; end
+                    12'h060: begin o_cdi_label[127 - 32*wcnt[1:0] -: 32] <= pwdata;
+                                  wcnt <= (wcnt[1:0] == 2'b11) ? 0 : wcnt + 1; end
                     12'h070: begin o_cdi_parent[255 - 32*wcnt -: 32] <= pwdata;
                                   wcnt <= wcnt + 1; end
                     12'h080: begin o_nonce[255 - 32*wcnt -: 32] <= pwdata;
@@ -56,6 +60,9 @@ module apb_regfile (
             end
 
             if (psel && penable && !pwrite) begin
+                if (paddr != 12'h028 && paddr != 12'h070 &&
+                    paddr != 12'h0C8)
+                    wcnt <= 0;
                 case (paddr)
                     12'h000: prdata <= 32'h49444531;
                     12'h004: prdata <= {16'b0, i_status};
