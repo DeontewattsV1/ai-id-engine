@@ -1,12 +1,20 @@
-# .github/workflows/signoff.yml
 name: signoff
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get install -y verilator yosys sby libssl-dev
+      - name: Setup Yosys and SymbiYosys from OSS CAD Suite
+        uses: YosysHQ/setup-oss-cad-suite@v4
+      - run: sudo apt-get update && sudo apt-get install -y verilator libssl-dev
+      - name: Validate toolchain
+        run: |
+          verilator --version
+          yosys -V
+          sby --version
       - run: make lint
       - run: make sim
       - run: make fuzz

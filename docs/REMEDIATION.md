@@ -70,3 +70,18 @@ RFC 9052/9053 COSE; FIPS 180-4 / 186-5.
 
 © 2026 Deonté O'dell Watts · ORCID 0009-0005-8586-3650 |
 GoodShyt Group Inc. | AI-assisted implementation.
+
+
+## 2026-11-15 verification extension
+
+- SHA-256 one-block compression engine rewritten with round-local word
+  expansion and correct final working-variable accumulation. Three KATs
+  verify padded messages "", "a", "abc". This is NOT a full multi-block
+  SHA-256 implementation and must not be used as a general streaming hash.
+- New mod_n_mul unit uses N_R2/N_N0, enters Montgomery for both operands,
+  multiplies, and explicitly exits using mont_mul(., 1). Its unit KAT
+  is deliberately separate from the unsafe ecdsa_core signature path.
+- ap_no_inf_midloop diagnostic SVA added under
+  ENABLE_ECDSA_LADDER_SVA; not a proof of exception-free scalar execution.
+- Legacy signoff runner uses YosysHQ OSS CAD Suite to provide sby, instead
+  of a missing Ubuntu apt package. Further failures are blocking facts.

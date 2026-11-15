@@ -38,6 +38,14 @@ module ecdsa_core (
     wire [255:0] k_base = priv;
     wire [63:0]  rho = blind_seed;
 
+    // Diagnostic only: the current ECDSA ladder is NOT a proven scalar
+    // multiplier. Enable in a SystemVerilog assertion-capable simulator
+    // to catch unexpected infinity on ordinary intermediate additions.
+`ifdef ENABLE_ECDSA_LADDER_SVA
+    ap_no_inf_midloop: assert property (
+        @(posedge clk) disable iff(!rst_n)
+        (st == 5 && ea_done && i != 0 && rz != 0) |-> (ea_z != 0));
+`endif
     integer n;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin st <= 0; done <= 0; fail <= 0; ea_start <= 0; inv_start <= 0; end

@@ -28,5 +28,9 @@ jobs:
         run: make math-oracle
       - name: Deterministic ROM regeneration and unit RTL tests
         run: make rtl-unit
+      - name: P-256 order-field modular product KAT
+        run: |
+          iverilog -g2012 -I rtl -s tb_mod_n_mul -o /tmp/ai-id-tb-nmod rtl/mont_mul.v rtl/mod_n_mul.v tb/tb_mod_n_mul.sv
+          vvp /tmp/ai-id-tb-nmod
       - name: Assert ROM deterministic
         run: git diff --exit-code -- rtl/bch_g.mem rtl/alpha_pow.mem
