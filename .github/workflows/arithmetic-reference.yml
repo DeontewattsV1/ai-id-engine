@@ -32,5 +32,9 @@ jobs:
         run: |
           iverilog -g2012 -I rtl -s tb_mod_n_mul -o /tmp/ai-id-tb-nmod rtl/mont_mul.v rtl/mod_n_mul.v tb/tb_mod_n_mul.sv
           vvp /tmp/ai-id-tb-nmod
+      - name: Field and subgroup inverse known-answer vectors
+        run: |
+          iverilog -g2012 -I rtl -s tb_fp_inv -o /tmp/ai-id-tb-inv rtl/mont_mul.v rtl/fp_ops.v tb/tb_fp_inv.sv
+          vvp /tmp/ai-id-tb-inv
       - name: Assert ROM deterministic
         run: git diff --exit-code -- rtl/bch_g.mem rtl/alpha_pow.mem
