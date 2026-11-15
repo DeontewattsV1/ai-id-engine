@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: MIT
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/firmware.h>
+#include "id_engine.h"
+
+extern struct ie_dev *ie_global;
+extern char __id_engine_text_start[], __id_engine_text_end[];
+extern char __id_engine_rodata_start[], __id_engine_rodata_end[];
+
+static int __init measure_chain(void)
+{
+    const struct firmware *fw;
+    u8 cdi[32];
+    int ret;
+
+    /* 1. this driver's own .text and .rodata, from the linker script */
+    ret = ie_measure(ie_global, IE_PCR_DRIVER, 3,
+                     __id_engine_text_start,
+                     __id_engine_text_end - __id_engine_text_start);
+    if (ret) return ret;
+    ret = ie_measure(ie_global, IE_PCR_DRIVER, 3,
+                     __id_engine_rodata_start,
+                     __id_engine_rodata_end - __id_engine_rodata_start);
+    if (ret) return ret;
+
+    /* 2. model weights */
+    ret = request_firmware(&fw, "model/weights.safetensors", NULL);
+    if (ret) { pr_err("id-engine: weights missing\n"); return ret; }
+    ret = ie_measure(ie_global, IE_PCR_MODEL, 4, fw->data, fw->size);
+    release_firmware(fw);
+    if (ret) return ret;
+
+    /* 3. config */
+    ret = request_firmware(&fw, "model/inference.json", NULL);
+    if (ret) { pr_err("id-engine: config missing\n"); return ret; }
+    ret = ie_measure(ie_global, IE_PCR_CONFIG, 5, fw->data, fw->size);
+    release_firmware(fw);
+    if (ret) return ret;
+
+    /* 4. ratchet identity to this exact software + model state */
+    ret = ie_get_cdi(ie_global, IE_LABEL_MODEL, cdi);
+    if (ret) return ret;
+
+    /* 5. release the model key, PCR-bound */
+    ret = ie_unseal(ie_global, 0x071F, (u8 *)IE_SEALED_KEY_ADDR,
+                    (u8 *)IE_PLAIN_KEY_ADDR);
+    if (ret) pr_crit("id-engine: unseal denied\n");
+    return 0;
+}
+late_initcall(measure_chain);

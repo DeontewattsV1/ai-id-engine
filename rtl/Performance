@@ -1,0 +1,1 @@
+Performance: 320 iterations × ~18 Montgomery multiplies × 128 cycles ≈ 737 k cycles ≈ 2.95 ms at 250 MHz. Fine for boot and 30 s heartbeat; too slow for per-request. If you need that, add a 4-bit fixed window (16 precomputed multiples of G) and drop to ~190 k cycles.

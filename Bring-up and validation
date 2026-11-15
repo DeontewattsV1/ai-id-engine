@@ -1,0 +1,7 @@
+$ make rtl            # verilator lint + iverilog sim
+$ make fw             # cross-compile driver + modules
+$ make dtb            # build board tree
+$ ./test/puf_startup  # N=1000 power cycles, Hamming dist >= 12%
+$ ./test/pcr_extend   # golden SHA-256 vectors, 10k extends
+$ ./test/quote_round  # sign -> verify against test CA
+$ ./test/tamper       # assert each sensor, confirm zeroize in <= 3 clks

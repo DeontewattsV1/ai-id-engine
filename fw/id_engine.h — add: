@@ -1,0 +1,1 @@
+int ie_get_cdi(struct ie_dev *d, const char *label, u8 out[32]);

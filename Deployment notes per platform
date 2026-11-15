@@ -1,0 +1,8 @@
+| Platform | Hook | Notes |
+| --- | --- | --- |
+| x86-64 | ACPI `IDEI` device + discrete TPM 2.0 as second root of trust | Cross-measure: TPM PCRs and IE PCRs both signed. Costs ~2ms/boot. |
+| x86 confidential | `SNP`/`TDX` report as the outer envelope, IE quote nested inside | IE gives per-model identity; SNP gives per-VM. Both required. |
+| ARM64 | TrustZone secure partition, DICE in BL2 at EL3 | BL2 measures BL31→U-Boot→kernel. IE block sits in the secure aperture. |
+| RISC-V | PMP-protected M-mode region, DICE in ROM stage 0 | PMP entries must be locked before any S-mode code runs. |
+| Cloud (nitro/SEV) | vTPM + nitro enclave attestation doc | IE quote nested in the platform doc; verifier checks both. |
+| Edge/embedded | Discrete secure element over SPI for UDS escrow | No enclave available — the SE *is* the enclave. |

@@ -1,0 +1,4 @@
+# formal/sby_cover.toml
+[tasks.cover]
+mode = cover
+depth = 128

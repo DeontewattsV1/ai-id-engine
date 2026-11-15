@@ -1,0 +1,12 @@
+┌─────────────── scan_clk (20 ns, external) ───────────────┐
+         │                                                          │
+   JTAG TAP ──┬── IDCODE/BYPASS/EXTEST                              │
+              ├── SIB → MBIST controller → key SRAM                 │
+              └── SIB → LBIST controller → 8 PRPG/MISR pairs        │
+         │                                                          │
+         ▼                                                          ▼
+   ┌─────────────┐   ┌──────────────┐   ┌────────────┐   ┌──────────────┐
+   │ ctrl/APB    │   │ hash datapath│   │ PCR bank   │   │ quote signer │
+   │ scan chain  │   │ scan chain   │   │ scan chain │   │ scan chain   │
+   │ (compressed)│   │ (compressed) │   │ (dedicated)│   │ (dedicated)  │
+   └─────────────┘   └──────────────┘   └────────────┘   └──────────────┘

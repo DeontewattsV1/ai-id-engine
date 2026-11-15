@@ -1,0 +1,5 @@
+# formal/sby.toml
+[tasks.prove]
+mode = prove
+depth = 64
+engines = ["abc pdr", "smtbmc boolector"]

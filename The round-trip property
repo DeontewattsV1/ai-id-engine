@@ -1,0 +1,1 @@
+The round-trip property — recon(enroll(p) + e) == recon(enroll(p)) for |e| ≤ t — is proven outside SMT, by exhaustive Python over the 20-bit code with 4-error patterns, and then spot-checked in the Verilator TB against the full 639-bit instantiation. Proving it directly at 639 bits is a research project, not a signoff task.

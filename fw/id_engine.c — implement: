@@ -1,0 +1,8 @@
+int ie_get_cdi(struct ie_dev *d, const char *label, u8 out[32])
+{
+    u8 parent[32], alias[32];
+    /* parent = CDI of the boot layer, derived at probe from the UDS */
+    memcpy(parent, d->boot_cdi, 32);
+    return ie_derive(d, label, parent, out, alias);
+}
+EXPORT_SYMBOL_GPL(ie_get_cdi);

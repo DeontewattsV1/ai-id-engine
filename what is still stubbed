@@ -1,0 +1,14 @@
+Honest gaps, in priority order:
+ecdsa_core for synthesis. The constant-time ladder needs a real implementation — double-and-add-always over secp256r1 with projective coordinates, scalar blinding, and base-point randomization. ~4 000 LUTs, and it is the second critical path after the SHA round.
+PUF characterization. BCH parameters are chosen from an assumed 5 % BER. If the measured intra-die Hamming distance exceeds 5 %, t=128 is undersized and the design needs t=160 with a longer syndrome and a smaller key.
+BCH generator polynomial. Not in the tree. Generate with a Python script over GF(2¹¹), verify deg(g) == 1408 and that g(α^i) == 0 for i = 1..256, dump to bch_g.mem. alpha_pow.mem likewise, 2 047 entries.
+Fuzzy-extractor formal. Prove recon(enroll(p) with ≤t flips) == recon(enroll(p)) — a 2 047-bit datapath, needs abstraction to 64 bits.
+Power analysis. The quote_signer payload assembly is fine, but the ECDSA ladder and the BCH decoder both leak. Masking budget and the TVLA setup are a separate workstream.
+measure_agent.c symbol references (IE_ROOT_SEED_ADDR, _stext) are placeholder addresses needing a real linker map.
+
+Remaining honest gaps
+ec_arith mm_dst declaration is missing from the listing above — add reg [3:0] mm_dst; and set it in step_mul.
+r = rx % N_MOD and s = (... ) % N_MOD in ecdsa_core are written as % on 256-bit regs; synthesis needs a real Barrett or Montgomery reduction mod n. Reuse mont_mul with N_MOD/N_N0 and a final mont_mul(·, 1) to exit Montgomery form.
+The prod/kk assignment in state 0 is written twice; the first line is dead and should be deleted.
+ec_arith doubling computes ×3 as two fp_adds before squaring, which gives 4*alpha not 3*alpha. Fix: one fp_add(alpha,alpha) then one fp_add(that, alpha).
+Point-at-infinity handling inside the loop is a fallback mux, not a proof; add an SVA ap_no_inf_midloop to catch it in sim.

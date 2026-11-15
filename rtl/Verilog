@@ -1,0 +1,9 @@
+round body becomes:
+// stage 0: precompute
+    wire [31:0] ch  = g ^ (e & fg_pre);
+    wire [31:0] sig = bsig1(e);
+    wire [31:0] t1s, t1c;
+    csa4 u_csa (.a(hh), .b(sig), .c(ch), .d(kw[round]), .s(t1s), .co(t1c));
+    // stage 1: single CPA, register
+    always @(posedge clk) t1 <= t1s + t1c;
+    always @(posedge clk) fg_pre <= f ^ g;
