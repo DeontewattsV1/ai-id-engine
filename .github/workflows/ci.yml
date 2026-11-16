@@ -61,12 +61,21 @@ jobs:
         working-directory: hwid
         shell: bash
     steps:
-      # sparse: the repo root has legacy paths that are invalid on Windows
       - uses: actions/checkout@v5
-        with:
-          sparse-checkout: |
-            hwid
-            verifier
+        if: runner.os != 'Windows'
+      # The repo root has legacy paths that are invalid on Windows (e.g. a
+      # directory name ending in a space), so git checkout fails there; fetch
+      # only the two crates from the commit tarball instead.
+      - name: Fetch hwid + verifier sources (Windows)
+        if: runner.os == 'Windows'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/tarball/${{ github.sha }}" -o src.tgz
+          tar xzf src.tgz --wildcards --strip-components=1 '*/hwid/*' '*/verifier/*'
+          ls hwid verifier
       - run: cargo --version
       - name: Test (warnings are errors)
         run: cargo test --locked

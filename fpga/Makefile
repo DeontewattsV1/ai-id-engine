@@ -40,7 +40,8 @@ $(B)/ai_id_engine.config: $(B)/ai_id_engine.json ulx3s.lpf
 
 $(B)/ai_id_engine_ulx3s.bit: $(B)/ai_id_engine.config
 	ecppack --compress $< $@
-	@grep -E "Max frequency for clock|Info: Device utilisation|TRELLIS_COMB|TRELLIS_FF|DP16KD|MULT18X18D|TRELLIS_IO" $(B)/nextpnr.log | tail -14 | tee $(B)/summary.txt
+	@( grep -E "^Info:[[:space:]]+(TRELLIS_COMB|TRELLIS_FF|TRELLIS_IO|DP16KD|MULT18X18D|TRELLIS_RAMW):" $(B)/nextpnr.log; \
+	   grep "Max frequency for clock" $(B)/nextpnr.log | tail -1 ) | tee $(B)/summary.txt
 
 ice40-stats: $(B)/otp_image.vh
 	yosys -q -p "read_verilog -DAI_ID_FUSE_UDS -I../rtl $(filter-out %/uart_apb_bridge.v %/axil_to_apb.v,$(RTL)); \
