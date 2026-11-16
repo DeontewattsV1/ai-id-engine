@@ -1,0 +1,22 @@
+# key_store_fd: FSM legality (HD3 codes), stored words are valid SEC-DED
+# codewords, and zeroize gates the keyed output. Fault-free model: these are
+# the properties the fault-injection sim (tb/tb_fault_detect.sv) breaks on
+# purpose to show the detectors fire.
+[options]
+mode prove
+depth 6
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -I. secded39_enc.v secded39_dec.v fault_alarm.v key_store_fd.v
+prep -top key_store_fd
+async2sync
+
+[files]
+rtl/secded39_fn.vh
+rtl/secded39_enc.v
+rtl/secded39_dec.v
+rtl/fault_alarm.v
+rtl/key_store_fd.v
