@@ -14,6 +14,9 @@ module quote_signer (
     output reg [15:0] quote_len,
     output reg done,err
 );
+    // Inputs are intentionally ignored while the signer is fail-closed.
+    wire unused_ok = &{1'b0, sign_start, alias_key, nonce, model_digest,
+                       config_digest, pcr_flat, timestamp};
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             fifo_data <= 0; fifo_valid <= 0; quote_len <= 0;

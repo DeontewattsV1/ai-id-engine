@@ -9,7 +9,7 @@ obj_dir/Vid_engine_top: tb/tb_id_engine.cpp tb/ecdsa_dpi.cpp $(RTL)
 	  -Wno-fatal -Wno-lint -Wno-UNOPTFLAT \
 	  --top-module id_engine_top \
 	  -CFLAGS "-O2 -DVERILATOR" -LDFLAGS "-lcrypto" \
-	  -Irtl $(RTL) tb/tb_id_engine.cpp -o Vid_engine_top
+	  -Irtl $(VLT) $(RTL) tb/tb_id_engine.cpp -o Vid_engine_top
 
 sim: obj_dir/Vid_engine_top
 	./obj_dir/Vid_engine_top
@@ -46,5 +46,32 @@ rtl-unit: math-oracle
 	vvp /tmp/ai-id-tb-mont
 	iverilog -g2012 -s tb_bch_enc -o /tmp/ai-id-tb-bch rtl/bch_enc.v tb/tb_bch_enc.sv
 	vvp /tmp/ai-id-tb-bch
+	iverilog -g2012 -s tb_sha256_core -o /tmp/ai-id-tb-sha rtl/sha256_compress.v rtl/sha256_core.v tb/tb_sha256_core.sv
+	vvp /tmp/ai-id-tb-sha
+	iverilog -g2012 -s tb_hmac_sha256 -o /tmp/ai-id-tb-hmac rtl/sha256_compress.v rtl/hmac_sha256.v tb/tb_hmac_sha256.sv
+	vvp /tmp/ai-id-tb-hmac
+	iverilog -g2012 -I rtl -s tb_mod_n_mul -o /tmp/ai-id-tb-nmod rtl/mont_mul.v rtl/mod_n_mul.v tb/tb_mod_n_mul.sv
+	vvp /tmp/ai-id-tb-nmod
+	iverilog -g2012 -I rtl -s tb_fp_inv -o /tmp/ai-id-tb-inv rtl/mont_mul.v rtl/fp_ops.v tb/tb_fp_inv.sv
+	vvp /tmp/ai-id-tb-inv
 
 .PHONY: math-oracle rtl-unit
+
+# Firmware/RTL register ABI agreement.
+regmap:
+	python3 test/check_regmap.py
+
+# Rust reference verifier (unit + CLI end-to-end tests).
+verifier:
+	cd verifier && cargo test --locked
+
+# Everything that defines "operational" for this repo (see docs/OPERATIONAL.md).
+test: lint sim rtl-unit regmap verifier
+	PYTHONPATH=test python3 test/puf_characterize_test.py
+	PYTHONPATH=test python3 test/tvla_test.py
+	@echo "ALL OPERATIONAL GATES PASS"
+
+clean:
+	rm -rf obj_dir verifier/target verifier/demo-out
+
+.PHONY: regmap verifier test clean

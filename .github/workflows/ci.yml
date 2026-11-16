@@ -1,0 +1,55 @@
+# Operational gates for the integrated design. See docs/OPERATIONAL.md.
+# These are functional gates only; they are NOT a security or tapeout signoff.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rtl:
+    name: RTL lint + end-to-end simulation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install HDL toolchain
+        run: sudo apt-get update && sudo apt-get install -y verilator iverilog libssl-dev
+      - run: verilator --version
+      - name: Lint (hardware build and simulation build, -Wall, zero warnings)
+        run: make lint
+      - name: End-to-end id_engine_top simulation checked against OpenSSL
+        run: make sim
+      - name: Unit RTL known-answer tests
+        run: make rtl-unit
+      - name: Firmware/RTL register ABI agreement
+        run: make regmap
+
+  verifier:
+    name: Rust quote verifier
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: verifier
+    steps:
+      - uses: actions/checkout@v5
+      - run: cargo --version
+      - name: Build and test (warnings are errors)
+        run: cargo test --locked
+        env:
+          RUSTFLAGS: -D warnings
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: CLI demo (issue, verify, reject tampered and replayed quotes)
+        run: cargo run --locked -q -- demo --out "$RUNNER_TEMP/demo"
+
+  driver:
+    name: Linux driver core builds against kernel headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install kernel headers
+        run: sudo apt-get update && sudo apt-get install -y "linux-headers-$(uname -r)"
+      - name: Build fw/id_engine.ko
+        run: make -C fw

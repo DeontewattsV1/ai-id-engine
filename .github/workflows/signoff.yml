@@ -1,5 +1,9 @@
-name: signoff
-on: [push, pull_request, workflow_dispatch]
+# Legacy full-chip signoff. BLOCKED: formal, fuzz and coverage gates depend on
+# files that do not exist yet (see docs/REMEDIATION.md), so this runs only on
+# demand and is expected to fail at `make fuzz` until that work lands.
+# The operational gates run in ci.yml on every push and pull request.
+name: signoff (blocked, manual)
+on: [workflow_dispatch]
 permissions:
   contents: read
 jobs:

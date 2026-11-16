@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Driver core only. attd.c and measure_agent.c are design sketches that
+# depend on unimplemented hardware (quote FIFO, measurement DMA) and
+# placeholder addresses; they are intentionally not built.
+obj-m += id_engine.o
