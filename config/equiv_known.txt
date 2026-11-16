@@ -1,0 +1,6 @@
+# Open proof gaps for tools/equiv_check.py: TOP followed by signals whose
+# RTL->netlist equivalence equiv_simple/equiv_induct does not close yet.
+# These are gaps in the PROOF, not known netlist bugs; the TVLA harness
+# also checks every netlist's outputs against Python (tools/tvla_collect.py).
+# See docs/EQUIVALENCE.md. Shrink this list; never grow it to make CI pass.
+mont_mul t bit_index

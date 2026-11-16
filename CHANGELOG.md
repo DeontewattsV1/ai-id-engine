@@ -21,6 +21,15 @@
   a fault (status bits 24/25). Bit-flip injection testbenches (`make
   fault-test`) and SymbiYosys proofs, including key non-interference for
   the reference key store. Detection only, not side-channel hardening.
+- RTL -> sky130 netlist equivalence (`make equiv`, Yosys `equiv_*`) for
+  `mont_mul`: output, operand registers, FSM and `done` proven; the `t`
+  accumulator and `bit_index` are an open proof gap listed in
+  `config/equiv_known.txt` (docs/EQUIVALENCE.md).
+- Signed evidence reports (`aiid evidence create|verify`, `make evidence`,
+  schema `aiid-evidence/v1`): every field classed identity/behavior/neither,
+  mandatory provenance (swtpm and the software key are `software`), model,
+  stimulus and TVLA parameters bound under the TPM/software signature
+  (docs/EVIDENCE.md).
 - Verifier: ADR-0003 ticket check with replay, skew and tamper tests.
 - hwid: the software-attestation key is published without clobbering
   (hard link or exclusive create), fixing a Windows CI race.

@@ -258,6 +258,25 @@ tvla-xcheck: build/obj_$(TRACE_FMT)/tvla_plain_wave
 
 .PHONY: lib synth-area cells cells-check tvla tvla-smoke tvla-xcheck
 
+# RTL -> sky130 netlist equivalence for the plain multiplier (docs/EQUIVALENCE.md).
+# Fails if any signal outside config/equiv_known.txt is left unproven.
+equiv: build/sky130_plain.json
+	YOSYS=$(YOSYS) tools/equiv_netlist.sh mont_mul build/sky130_plain.v sim/sky130_fd_sc_hd_cells.v build/equiv rtl/mont_mul.v
+	python3 tools/equiv_check.py build/equiv/equiv_mont_mul.txt mont_mul
+
+# Signed evidence report over a finished `make tvla` run (docs/EVIDENCE.md).
+# ATTEST=auto|tpm|software (software = local key file; provenance root "software").
+ATTEST ?= auto
+evidence: $(TV)/summary.json
+	python3 tools/evidence_inputs.py --profile $(PROFILE) --masked $(MASKED) --dir $(TV) \
+	  --out $(TV)/evidence_inputs.json --yosys $(YOSYS) --verilator $(VERILATOR)
+	$(CARGO) run --manifest-path hwid/Cargo.toml --locked --quiet --bin aiid -- evidence create \
+	  --tvla-summary $(TV)/summary.json --inputs $(TV)/evidence_inputs.json \
+	  --out $(TV)/evidence.json --attest $(ATTEST)
+	$(CARGO) run --manifest-path hwid/Cargo.toml --locked --quiet --bin aiid -- evidence verify --report $(TV)/evidence.json
+
+.PHONY: equiv evidence
+
 # Masked Montgomery multipliers (2-share v2, 3-share, MASK_EN wrapper) checked
 # against Python over P-256 p and n, plus the TVLA statistics unit tests.
 tvla-test:

@@ -70,6 +70,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           # 0 pass, 2/3/4 are leakage/area VERDICTS (reported); 5 = harness failure.
           case $rc in 0|2|3|4) exit 0 ;; *) exit 1 ;; esac
+      - name: RTL -> sky130 netlist equivalence (mont_mul; known proof gaps in config/equiv_known.txt)
+        run: make equiv
+      - name: Signed evidence report over the TVLA run (software root in CI)
+        run: make evidence PROFILE=ci MASKED=masked_v2 TV=build/tvla ATTEST=software
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -78,6 +82,7 @@ jobs:
             build/tvla/*.json
             build/tvla/summary.txt
             build/area_*.txt
+            build/equiv/equiv_mont_mul.txt
 
   verifier:
     name: Rust quote verifier
