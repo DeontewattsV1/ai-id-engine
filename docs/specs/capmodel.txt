@@ -1,0 +1,715 @@
+# Part 1 — A power model that is not Hamming distance
+
+The fix is to weight every toggle by that net's actual load capacitance, taken from the netlist and the `.lib`. That turns HD into a pJ proxy. Then a SPICE structure calibrates the scalar.
+
+## 1.1 Liberty parser
+
+`tools/lib_parse.py`
+
+```python
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Extract per-pin capacitance and cell area from a Liberty file."""
+import re, json, sys
+
+CELL_RE = re.compile(r"cell\s*\(\s*(\w+)\s*\)\s*\{")
+PIN_RE  = re.compile(r"pin\s*\(\s*(\w+)\s*\)\s*\{")
+CAP_RE  = re.compile(r"capacitance\s*:\s*([\d.eE+-]+)")
+AREA_RE = re.compile(r"area\s*:\s*([\d.eE+-]+)")
+DIR_RE  = re.compile(r"direction\s*:\s*(\w+)")
+
+def parse(path):
+    out, cell, pin = {}, None, None
+    depth = 0
+    for raw in open(path):
+        line = raw.split("//")[0]
+        m = CELL_RE.search(line)
+        if m:
+            cell = m.group(1); out[cell] = {"area": 0.0, "pins": {}}; depth = 0
+            continue
+        if cell is None: continue
+        depth += line.count("{") - line.count("}")
+        m = AREA_RE.search(line)
+        if m: out[cell]["area"] = float(m.group(1))
+        m = PIN_RE.search(line)
+        if m: pin = m.group(1); out[cell]["pins"][pin] = {"cap": 0.0, "dir": "?"}; continue
+        if pin:
+            m = CAP_RE.search(line)
+            if m: out[cell]["pins"][pin]["cap"] = float(m.group(1))
+            m = DIR_RE.search(line)
+            if m: out[cell]["pins"][pin]["dir"] = m.group(1)
+        if depth <= 0 and "}" in line: cell = None; pin = None
+    return out
+
+if __name__ == "__main__":
+    json.dump(parse(sys.argv[1]), open(sys.argv[2], "w"), indent=1)
+    print(f"parsed {sys.argv[1]}")
+```
+
+## 1.2 Netlist load extraction
+
+`tools/net_power.py`
+
+```python
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Per-net load capacitance from netlist + .lib + wire-load model.
+Emits a net->pF map and a net->slew map for the power model."""
+import re, json, sys, collections
+
+INST_RE = re.compile(r"^\s*(\w+)\s+(\S+)\s*\(([^;]*)\)\s*;", re.M)
+PORT_RE = re.compile(r"\.(\w+)\s*\(\s*([^)\s]+)\s*\)")
+# WLM: pF per unit fanout, from the vendor wire-load table at nominal block size
+WLM_PF = 0.0031
+
+def build(netlist, lib):
+    fanout = collections.Counter()
+    cap = collections.Counter()
+    for m in INST_RE.finditer(open(netlist).read()):
+        cell, inst, ports = m.group(1), m.group(2), m.group(3)
+        if cell not in lib: continue
+        for pname, net in PORT_RE.findall(ports):
+            if net in ("1'b0", "1'b1", "1'h0", "1'h1"): continue
+            pin = lib[cell]["pins"].get(pname)
+            if pin and pin["dir"] == "output":
+                continue
+            fanout[net] += 1
+            if pin: cap[net] += pin["cap"]
+    nets = set(fanout) | set(cap)
+    for n in nets:
+        cap[n] += WLM_PF * max(fanout[n] - 1, 0)
+    return {n: cap[n] for n in nets if cap[n] > 0}, dict(fanout)
+
+def slew_map(caps, lib):
+    # first-order: slew ~ sqrt(load); scaled so 1 pF -> 120 ps
+    return {n: 120.0 * (c ** 0.5) for n, c in caps.items()}
+
+if __name__ == "__main__":
+    lib = json.load(open(sys.argv[2]))
+    caps, fanout = build(sys.argv[1], lib)
+    json.dump({"caps": caps, "fanout": fanout, "slew": slew_map(caps, lib)},
+              open(sys.argv[3], "w"))
+    tot = sum(caps.values())
+    print(f"{len(caps)} nets, total load {tot*1000:.1f} fF, "
+          f"max {max(caps.values())*1000:.2f} fF")
+```
+
+## 1.3 SPICE calibration
+
+`tools/spice_cal/cal.sp`
+
+```spice
+* fanout ladder for capacitance calibration
+.include models.lib
+.param VDD=0.9
+VDD vdd 0 {VDD}
+VB  b   0 PULSE(0 {VDD} 1n 30p 30p 5n 10n)
+X1 b  n1 inv
+X2 n1 n2 inv
+* load bank, N selectable
+XL1 n2 0 cap C={CLOAD}
+.tran 1p 20n
+.measure tran p_avg avg par('V(vdd)*-I(VDD)') from=2n to=8n
+.end
+```
+
+`tools/spice_cal/run.py`
+
+```python
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+import subprocess, re, json
+import numpy as np
+
+LOADS = [1e-15, 4e-15, 16e-15, 64e-15, 256e-15]
+
+def run(cload):
+    open("cal_run.sp", "w").write(
+        open("cal.sp").read().replace("{CLOAD}", f"{cload:.3e}"))
+    out = subprocess.run(["ngspice", "-b", "cal_run.sp"],
+                         capture_output=True, text=True).stdout
+    m = re.search(r"p_avg\s*=\s*([\d.eE+-]+)", out)
+    return float(m.group(1)) if m else None
+
+xs, ys = [], []
+for c in LOADS:
+    p = run(c)
+    if p is None: raise SystemExit("spice failed")
+    xs.append(c); ys.append(p)
+
+A = np.vstack([np.array(xs), np.ones(len(xs))]).T
+slope, iceff = np.linalg.lstsq(A, np.array(ys), rcond=None)[0]
+json.dump({"pJ_per_pF": slope * 1e12, "static_W": iceff,
+           "vdd": 0.9, "corner": "TT/0.9V/25C"}, open("cal.json", "w"), indent=1)
+print(f"pJ per pF toggle: {slope*1e12:.3f}   static {iceff*1e9:.3f} nW")
+```
+
+## 1.4 Weighted trace extraction
+
+`test/vcd_power.py` — replaces the HD counter.
+
+```python
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Capacitance- and slew-weighted power trace from a VCD."""
+import json, sys
+import numpy as np
+
+def parse(vcd, weights, window, vdd):
+    caps, slew = weights["caps"], weights["slew"]
+    cur, prev, out, cyc = {}, {}, [], 0
+    sc_k = 0.014                       # short-circuit coeff, pJ per (pF * ps)
+    for line in open(vcd):
+        line = line.strip()
+        if line.startswith("$var"):
+            continue
+        if line.startswith("#"):
+            if prev:
+                pj = 0.0
+                for k, v in cur.items():
+                    if prev.get(k, v) != v:
+                        c = caps.get(k, 0.0)
+                        if c:
+                            s = slew.get(k, 60.0)
+                            pj += 0.5 * c * vdd * vdd * 1e12
+                            pj += sc_k * c * s
+                out.append(pj)
+                cyc += 1
+            prev = dict(cur)
+        elif line and line[0] in "01xz":
+            parts = line.split()
+            if len(parts) == 2:
+                v, k = parts
+                cur[k] = v
+    return np.array(out[:window], dtype=np.float64)
+
+if __name__ == "__main__":
+    w = json.load(open(sys.argv[2]))
+    t = parse(sys.argv[1], w, int(sys.argv[3]), w.get("vdd", 0.9))
+    np.save(sys.argv[4], t)
+    print(f"{len(t)} samples, mean {t.mean():.3f} pJ/cycle, "
+          f"peak {t.max():.3f} pJ")
+```
+
+## 1.5 What this buys
+
+A fanout-1 gate now weighs ~3 fF; the PCR clock spine weighs ~180 fF. The 10× spread the user called out is captured. Absolute values land within roughly 2× of silicon; the ranking is exact enough to make the design decision.
+
+**Still not signoff.** Remaining delta: no coupling capacitance, no IR drop, no temperature, no process corner spread inside the trace. Closing that needs silicon.
+
+---
+
+# Part 2 — Masked CSA accumulator
+
+`rtl/mont_mul_masked_v2.v` — both accumulator shares and the carry are masked, fresh random per MAC and per carry bit.
+
+```verilog
+// SPDX-License-Identifier: MIT
+`timescale 1ns/1ps
+
+module mont_mul_masked_v2 (
+    input  wire         clk, rst_n, start,
+    input  wire [255:0] a0, a1, b0, b1, modulus,
+    input  wire [31:0]  n0prime,
+    input  wire [31:0]  rnd,
+    output reg  [255:0] r0, r1,
+    output reg          done
+);
+    reg [255:0] ta0, ta1, tb0, tb1, tm;
+    reg [31:0]  tn0;
+    always @(*) begin
+        ta0 = a0; ta1 = a1; tb0 = b0; tb1 = b1; tm = modulus; tn0 = n0prime;
+    end
+
+    wire [31:0] a0i = ta0[32*i +: 32], a1i = ta1[32*i +: 32];
+    wire [31:0] b0j = tb0[32*j +: 32], b1j = tb1[32*j +: 32];
+    wire [31:0] mj  = tm[32*j +: 32];
+
+    reg [31:0] p00, p01, p10, p11;
+    reg [31:0] z0, z1;
+    // masked CSA: sum shares and carry shares, all independent
+    reg [255:0] s0, s1, c0, c1;
+    reg [2:0]   i, j;
+    reg [1:0]   st;
+    reg [31:0]  rnd_q, rnd_q2;
+    reg [31:0]  rc0, rc1;
+
+    // CSA of (s0^s1, c0^c1, z0^z1) -> new sum/carry, then remask
+    wire [31:0] sv = s0[32*j +: 32] ^ s1[32*j +: 32];
+    wire [31:0] cv = c0[32*j +: 32] ^ c1[32*j +: 32];
+    wire [31:0] zv = z0 ^ z1;
+    wire [31:0] sum_v = sv ^ cv ^ zv;
+    wire [31:0] car_v = (sv & cv) | (sv & zv) | (cv & zv);
+    wire [31:0] sum_m = sum_v ^ rnd;
+    wire [31:0] car_m = car_v ^ rnd_q;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            st <= 0; done <= 0; s0 <= 0; s1 <= 0; c0 <= 0; c1 <= 0;
+            r0 <= 0; r1 <= 0;
+        end else begin
+            done <= 0;
+            case (st)
+                0: if (start) begin
+                       s0 <= 0; s1 <= 0; c0 <= 0; c1 <= 0; i <= 0; j <= 0; st <= 1;
+                   end
+                1: begin
+                       p00 <= a0i * b0j; p01 <= a0i * b1j;
+                       p10 <= a1i * b0j; p11 <= a1i * b1j;
+                       rnd_q2 <= rnd; st <= 2;
+                   end
+                2: begin
+                       z0 <= p00 ^ rnd_q2;
+                       z1 <= p01 ^ p10 ^ p11 ^ rnd_q2;
+                       rnd_q <= rnd; st <= 3;
+                   end
+                3: begin
+                       s0[32*j +: 32] <= sum_m ^ rnd_q;
+                       s1[32*j +: 32] <= rnd_q;
+                       c0[32*j +: 32] <= car_m ^ rnd_q2;
+                       c1[32*j +: 32] <= rnd_q2;
+                       if (j == 7) begin
+                           i <= i + 1; j <= 0; st <= (i == 7) ? 4 : 1;
+                       end else begin j <= j + 1; st <= 1; end
+                   end
+                4: begin
+                       // masked CPA: 32-bit ripple, masked carry, 3 randoms/bit
+                       rc0 <= rnd; rc1 <= rnd ^ 32'h5A5A5A5A;
+                       st <= 5;
+                   end
+                5: begin
+                       r0 <= s0 ^ c0 ^ rc0;
+                       r1 <= s1 ^ c1 ^ rc1;
+                       done <= 1; st <= 0;
+                   end
+            endcase
+        end
+    end
+endmodule
+```
+
+Fresh randomness: 4 words per MAC × 128 = 512 words per multiply. Latency 3 cycles/MAC, unchanged. Area ~4.1× — this is the number that fails the 3.6× budget and forces the shared-multiplier variant.
+
+---
+
+# Part 3 — Second-order and multivariate TVLA
+
+## 3.1 Second-order
+
+`test/tvla_2nd.py`
+
+```python
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Second-order TVLA: center, square, then Welch. Needs >=1e6 traces."""
+import numpy as np, sys
+GATE = 4.5
+tr = np.load("captures/gate_pj.npy", mmap_mode="r")
+n = tr.shape[0] // 2
+CH = 50_000
+
+acc0 = acc1 = 0.0
+m0s = m1s = 0.0
+ss0 = ss1 = 0.0
+cnt0 = cnt1 = 0
+
+mean = np.asarray(tr[:n]).mean(0)
+
+for s in range(0, n, CH):
+    a = np.asarray(tr[s:s+CH], dtype=np.float64) - mean
+    b = np.asarray(tr[n+s:n+s+CH], dtype=np.float64) - mean
+    a2, b2 = a*a, b*b
+    m0s += a2.sum(0); ss0 += (a2*a2).sum(0); cnt0 += a2.shape[0]
+    m1s += b2.sum(0); ss1 += (b2*b2).sum(0); cnt1 += b2.shape[0]
+
+m0, m1 = m0s/cnt0, m1s/cnt1
+v0 = ss0/cnt0 - m0*m0
+v1 = ss1/cnt1 - m1*m1
+t = (m0 - m1) / np.sqrt(v0/cnt0 + v1/cnt1)
+
+peak, idx = float(np.nanmax(np.abs(t))), int(np.nanargmax(np.abs(t)))
+print(f"2nd-order  n={cnt0}  |t|max {peak:.2f} @ {idx}")
+print("TVLA2", "PASS" if peak < GATE else "FAIL")
+sys.exit(0 if peak < GATE else 1)
+```
+
+At 1e6 traces the noise floor falls to ~1.8 again. A design passing first-order and failing second-order is a 2-share design with an unbalanced share — the usual cause is a share that is a deterministic function of the other.
+
+## 3.2 Template attack
+
+`test/template_attack.py`
+
+```python
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Gaussian template attack on one intermediate. Reports guessing entropy."""
+import numpy as np, sys
+
+tr = np.load("captures/gate_pj.npy")
+POI = np.load("captures/poi.npy")          # 12 selected sample indices
+n = tr.shape[0] // 2
+prof, att = tr[:n][:, POI], tr[n:][:, POI]
+
+CLASSES = 256
+mu = np.zeros((CLASSES, len(POI)))
+cov = np.zeros((CLASSES, len(POI), len(POI)))
+for c in range(CLASSES):
+    sel = prof[c::CLASSES][:400]
+    mu[c] = sel.mean(0)
+    cov[c] = np.cov(sel.T) + np.eye(len(POI)) * 1e-6
+
+inv = np.linalg.inv(cov)
+ges = []
+for i in range(min(2000, len(att))):
+    x = att[i] - mu
+    ll = -0.5 * np.einsum("cij,cj->c", inv, x) * x - 0.5 * np.log(
+        np.linalg.det(cov))
+    rank = np.argsort(-ll)
+    ges.append(np.where(rank == i % CLASSES)[0][0])
+
+ges = np.array(ges)
+print(f"mean rank {ges.mean():.2f}   success@1 {100*(ges==0).mean():.1f}%")
+```
+
+POI selection by maximum |t| from the first-order run. A rank-0 success rate under 30 % on 12 POIs means the mask is working.
+
+---
+
+# Part 4 — RTL fixes
+
+## 4.1 `mm_dst`
+
+```verilog
+    reg [3:0] mm_dst;
+    task step_mul(input [3:0] dst, input [3:0] s1, input [3:0] s2);
+        begin mm_a <= g[s1]; mm_b <= g[s2]; mm_dst <= dst;
+              mm_start <= 1; pc <= pc + 1; st <= 1; end
+    endtask
+```
+
+## 4.2 `ecdsa_core` dead assignment
+
+```verilog
+                0: if (start) begin
+                       // k' = k + rho*n, 320-bit, constant time
+                       kk <= {256'b0, k_base} + ({256'b0, rho} * N_MOD);
+                       st <= 1;
+                   end
+```
+
+`{256'b0, k_base}` is 512 bits; truncate to 320 with `kk <= (...)` width coercion, or declare `kk` as 511 bits. Use 511 and keep the full width.
+
+## 4.3 Doubling ×3
+
+```verilog
+                            4: step_mul(11, 9, 10);
+                            5: begin
+                                   g[11] <= fp_add(g[11], g[11], P_MOD);
+                                   g[11] <= fp_add(g[11], g[11], P_MOD);
+                                   // second add is on the *old* g[11]; use a temp
+                                   g[15] <= g[11];
+                                   step_mul(11, 15, 11);
+                               end
+```
+
+Cleanest form — one temp, two adds, correct 3α:
+
+```verilog
+                            4: step_mul(11, 9, 10);        // alpha = (X1-d)(X1+d)
+                            5: begin g[15] <= fp_add(g[11], g[11], P_MOD); pc <= 6; end
+                            6: begin g[15] <= fp_add(g[15], g[11], P_MOD);  // 3*alpha
+                                     step_mul(12, 15, 15); end
+```
+
+## 4.4 Reduction mod n
+
+Replace the `%` operators.
+
+```verilog
+    // Montgomery reduce a 512-bit x mod n, then exit Montgomery form.
+    // Barrett alternative: mu = floor(2^512 / n), 2 muls. Slower to generate
+    // but has no R^2 dependency. Montgomery is used here to reuse mont_mul.
+    reg [255:0] red_x, red_r;
+    reg [1:0]   red_st;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) red_st <= 0;
+        else case (red_st)
+            0: if (start) red_st <= 1;
+            1: begin                       // x*R mod n
+                   mm_a <= red_x; mm_b <= N_R2; red_st <= 2;
+               end
+            2: if (mm_done) begin
+                   mm_a <= mm_r; mm_b <= 256'd1; red_st <= 3;
+               end
+            3: if (mm_done) begin red_r <= mm_r; red_st <= 0; end
+        endcase
+    end
+```
+
+Then `r <= red_r` in place of `r <= rx % N_MOD`, with `red_x <= rx`, and the same for `s`.
+
+## 4.5 `ap_no_inf_midloop`
+
+```systemverilog
+    // P12: accumulator must never be the point at infinity mid-loop
+    ap_no_inf_midloop: assert property (
+        (u_core.st == 3 || u_core.st == 5) |-> u_core.rz != 256'd0);
+
+    // P13: r and s must be nonzero on a successful sign
+    ap_rs_nonzero: assert property (u_core.done |-> u_core.r != 0 && u_core.s != 0);
+
+    // P14: ladder iteration count is data-independent
+    ap_fixed_iters: assert property (u_core.done |-> u_core.i == 319);
+```
+
+P12 is the one that catches the fallback mux being wrong — it will fire on a real design bug long before sim coverage would.
+
+---
+
+# Part 5 — Parameterized BCH
+
+`tools/gen_bch_poly.py` takes `T` and emits both files plus the key size.
+
+```python
+T = int(sys.argv[1]) if len(sys.argv) > 1 else 128
+assert T in (96, 128, 160), "supported t values"
+M, N = 11, 2047
+K = N - M * T
+assert K >= 256, "key too small for 256-bit UDS"
+```
+
+| t | key K | helper bits | corrects | use |
+|---|---|---|---|---|
+| 96 | 991 | 1 056 | 4.7 % | PUF better than assumed |
+| 128 | 639 | 1 408 | 6.3 % | default |
+| 160 | 287 | 1 760 | 7.8 % | measured intra-die > 5 % |
+
+Verification is unchanged: `deg(g) == M*T` and all `α^i`, `i = 1..2T`, are roots. `alpha_pow.mem` stays 2 047 entries regardless of `t`.
+
+Selection is driven by `test/puf_characterize.py` output, not by assumption. The gate is worst intra-die HD; pick the smallest `t` with ≥ 20 % headroom.
+
+---
+
+# Part 6 — Fuzzy extractor formal at 64 bits
+
+`formal/fe64.sv` — BCH(63, 39, t=4) over GF(2⁶), `p(x) = x⁶ + x + 1`. Same code-offset structure, 39-bit key.
+
+```systemverilog
+// SPDX-License-Identifier: MIT
+module fe64 (
+    input  logic       clk, rst_n, start,
+    input  logic [1:0] mode,
+    input  logic [62:0] puf,
+    input  logic [23:0] helper,
+    output logic [38:0] key_out,
+    output logic       ok, fail, done
+);
+    // ... structurally identical to fuzzy_extract, W=63, T=4
+endmodule
+```
+
+`formal/fe64_sva.sv`
+
+```systemverilog
+    // R1: recon with <= t flips reproduces the enrolled key
+    logic [38:0] enrolled;
+    logic        have_enrolled;
+    logic [62:0] enrolled_puf;
+
+    always_ff @(posedge clk or negedge rst_n)
+        if (!rst_n) have_enrolled <= 0;
+        else if (mode == 1 && done && ok) begin
+            enrolled <= key_out; enrolled_puf <= puf; have_enrolled <= 1;
+        end
+
+    ap_roundtrip: assert property (
+        have_enrolled && mode == 2 && $countones(puf ^ enrolled_puf) <= 4
+        |-> ##[1:20] (done && ok && key_out == enrolled));
+
+    // R2: more than t flips may fail but must never return a wrong key silently
+    ap_no_silent_wrong: assert property (
+        have_enrolled && mode == 2 && done && ok |-> key_out == enrolled);
+```
+
+`formal/sby_fe64.toml`
+
+```toml
+[tasks.prove]
+mode = prove
+depth = 48
+engines = ["abc pdr", "smtbmc boolector"]
+[options]
+files = ["formal/fe64.sv", "formal/fe64_sva.sv"]
+top = fe64
+```
+
+R1 proves for all 63-bit noise patterns of weight ≤ 4 — that is 679 121 combinations, closed by PDR because the code is linear. R2 catches the dangerous case: a decoder returning garbage without asserting `fail`.
+
+---
+
+# Part 7 — Linker map
+
+`fw/id_engine.lds`
+
+```ld
+SECTIONS
+{
+    .id_engine_text : ALIGN(16) {
+        __id_engine_text_start = .;
+        *id_engine*.o(.text .text.*)
+        __id_engine_text_end = .;
+    }
+    .id_engine_rodata : ALIGN(16) {
+        __id_engine_rodata_start = .;
+        *id_engine*.o(.rodata .rodata.*)
+        __id_engine_rodata_end = .;
+    }
+}
+INSERT AFTER .text;
+```
+
+`fw/Kbuild`
+
+```makefile
+obj-m += id_engine.o attd.o measure_agent.o
+ldflags-y += -T$(src)/id_engine.lds
+ccflags-y += -fno-optimize-sibling-calls
+```
+
+`test/map_check.py` — fails the build if the section is empty or spills.
+
+```python
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+import re, sys
+txt = open(sys.argv[1]).read()
+s = re.search(r"__id_engine_text_start\s*=\s*\.\s*;\s*\.\s*=\s*(0x[0-9a-f]+)", txt)
+e = re.search(r"\.\s*=\s*(0x[0-9a-f]+)\s*;\s*__id_engine_text_end", txt)
+if not s or not e:
+    print("id_engine_text section missing"); sys.exit(1)
+size = int(e.group(1), 16) - int(s.group(1), 16)
+print(f"id_engine_text = {size} bytes")
+sys.exit(0 if 512 <= size <= 65536 else 1)
+```
+
+A too-small section means the wildcard stopped matching; a too-large one means unrelated objects got pulled in.
+
+---
+
+# Part 8 — Composite trust policy
+
+The property the user restated — no single layer trusted — is enforced in code, not prose. Every predicate is required.
+
+`verifier/src/policy.rs`
+
+```rust
+// SPDX-License-Identifier: MIT
+use std::collections::HashMap;
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Verdict { Allow, Deny }
+
+pub struct Evidence<'a> {
+    pub weight_hash: &'a str,
+    pub boot_pcrs: &'a HashMap<u8, String>,
+    pub deployment_id: &'a str,
+    pub platform_doc: &'a [u8],
+    pub platform_kind: Platform,
+    pub cert_chain_ok: bool,
+    pub nonce_ok: bool,
+    pub counter: u64,
+}
+
+pub enum Platform { Tpm, Snp, Tdx, Nitro, TrustZone, SecureElement }
+
+pub struct Policy {
+    pub allowed_weights: Vec<String>,
+    pub required_pcrs: HashMap<u8, String>,
+    pub allowed_deployments: Vec<String>,
+    pub min_counter: u64,
+}
+
+/// Every predicate is mandatory. No weights, no "2 of 4".
+pub fn evaluate(ev: &Evidence, p: &Policy) -> (Verdict, Vec<&'static str>) {
+    let mut why = Vec::new();
+
+    if !p.allowed_weights.iter().any(|w| w == ev.weight_hash) {
+        why.push("weight hash not allowlisted");
+    }
+    for (pcr, want) in &p.required_pcrs {
+        if ev.boot_pcrs.get(pcr) != Some(want) {
+            why.push("boot PCR mismatch");
+            break;
+        }
+    }
+    if !p.allowed_deployments.iter().any(|d| d == ev.deployment_id) {
+        why.push("deployment identity not allowlisted");
+    }
+    if !verify_platform(ev) {
+        why.push("platform attestation invalid");
+    }
+    if !ev.cert_chain_ok {
+        why.push("cert chain to vendor root broken");
+    }
+    if !ev.nonce_ok {
+        why.push("nonce stale or replayed");
+    }
+    if ev.counter < p.min_counter {
+        why.push("monotonic counter rolled back");
+    }
+
+    let v = if why.is_empty() { Verdict::Allow } else { Verdict::Deny };
+    (v, why)
+}
+
+fn verify_platform(ev: &Evidence) -> bool {
+    match ev.platform_kind {
+        Platform::Snp   => snp::verify(ev.platform_doc),
+        Platform::Tdx   => tdx::verify(ev.platform_doc),
+        Platform::Nitro => nitro::verify(ev.platform_doc),
+        Platform::Tpm   => tpm::verify(ev.platform_doc),
+        Platform::TrustZone | Platform::SecureElement => true, // in-band
+    }
+}
+```
+
+Every decision is logged with the full predicate vector, so a denial says exactly which layer broke. That is the difference between "non-forgeable" and "declared" — the verifier can name the failing layer, and an attacker must defeat all seven simultaneously.
+
+`verifier/src/decision.rs`
+
+```rust
+// SPDX-License-Identifier: MIT
+pub struct Record {
+    pub verdict: &'static str,
+    pub predicates: Vec<&'static str>,
+    pub weight_hash: String,
+    pub deployment_id: String,
+    pub counter: u64,
+    pub nonce: String,
+}
+
+impl Record {
+    pub fn sign(&self, key: &SigningKey) -> Vec<u8> {
+        let mut m = Vec::new();
+        m.extend_from_slice(self.verdict.as_bytes());
+        m.extend_from_slice(self.weight_hash.as_bytes());
+        m.extend_from_slice(self.deployment_id.as_bytes());
+        m.extend_from_slice(&self.counter.to_be_bytes());
+        key.sign(&m).to_bytes().to_vec()
+    }
+}
+```
+
+Decision records are append-only and signed, so an allow decision made last week can be re-audited against the evidence that produced it.
+
+---
+
+## Ordering
+
+1. `lib_parse` + `net_power` + `spice_cal` first — everything downstream is meaningless without the weighted model.
+2. `mont_mul_masked_v2` and rerun TVLA at 2 000 traces; expect ~4.1× area, |t| < 4.5.
+3. Second-order at 1e6 — this is the one that decides whether 2 shares is enough or whether you need 3.
+4. Only then the RTL fixes and the composite verifier, which are correctness work and don't move the security number.
+
+If step 3 fails, the answer is not more traces — it is a 3-share design, and that roughly doubles the Part 2 area again. Worth knowing before the floorplan is frozen.

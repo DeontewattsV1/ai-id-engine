@@ -19,6 +19,9 @@ module mont_mul (
     wire [257:0] t_plus_n = t_plus_a +
                            (t_plus_a[0] ? {2'b0, nn} : 258'd0);
     wire [257:0] reduced = (t >= {2'b0, nn}) ? t-{2'b0, nn} : t;
+    // Final subtraction is 258-bit; only [255:0] is the result (t < 2n
+    // guarantees bits 257:256 are zero after the subtract).
+    wire unused_ok_reduced = &{1'b0, reduced[257:256]};
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

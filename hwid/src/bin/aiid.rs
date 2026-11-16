@@ -8,7 +8,7 @@ use ai_id_verifier::{Cert, HwQuote};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str = "aiid — AI Birth Certificate tool (ai-id-engine v0.1.0)
+const USAGE: &str = "aiid — AI Birth Certificate tool (ai-id-engine v0.2.0)
 
 USAGE:
   aiid ca init --dir DIR [--name NAME]               generate a TEST-ONLY demo vendor CA

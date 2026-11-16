@@ -32,8 +32,47 @@ jobs:
         run: make regmap
       - name: Known-answer tests (NIST SHA-256, RFC 4231 HMAC, RFC 6979 ECDSA P-256)
         run: make kat
+      - name: Masked Montgomery RTL (v2 2-share, 3-share, wrapper) + TVLA statistics unit tests
+        run: make tvla-test
       - name: Formal (gf_mult, OTP fuse semantics, PCR extend-only)
         run: make formal-all
+
+  tvla:
+    name: TVLA (sky130 gate-level, profile ci, 4000 traces/group, gate 4.37)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: ${{ env.OSS_CAD_SUITE_VERSION }}
+          github-token: ${{ github.token }}
+      - run: sudo apt-get update && sudo apt-get install -y python3-numpy
+      - name: Power-model cross-check (in-sim energies == waveform-derived energies)
+        run: make tvla-xcheck
+      - name: TVLA on mont_mul_masked_v2 (null control first; verdict reported, harness failure fails CI)
+        run: |
+          set +e
+          make tvla PROFILE=ci MASKED=masked_v2 TV=build/tvla
+          rc=$(cat build/tvla/gate.rc 2>/dev/null || echo 99)
+          echo "gate exit $rc"
+          {
+            echo "### TVLA, profile ci (simulated gate-level traces, not silicon)"
+            echo '```'
+            cat build/tvla/summary.txt
+            echo '```'
+            echo "> CI is not signoff: 4000 traces/group resolves leaks above ~0.1 sigma."
+          } >> "$GITHUB_STEP_SUMMARY"
+          # 0 pass, 2/3/4 are leakage/area VERDICTS (reported); 5 = harness failure.
+          case $rc in 0|2|3|4) exit 0 ;; *) exit 1 ;; esac
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tvla-ci-evidence
+          path: |
+            build/tvla/*.json
+            build/tvla/summary.txt
+            build/area_*.txt
 
   verifier:
     name: Rust quote verifier
