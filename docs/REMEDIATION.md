@@ -116,3 +116,12 @@ GoodShyt Group Inc. | AI-assisted implementation.
   now passes, but only with the narrow formal/fuzz/coverage gates introduced
   by the CI-fixer (gf_mult proof, non-empty coverage); it is not a tapeout
   signoff. Unresolved blockers above are unchanged.
+
+## v0.1.0 (release/v0.1.0)
+
+* Key-leaking `ecdsa_core`/`quote_signer` removed from the engine and
+  quarantined under `research/unsafe-ecdsa/` (README explains the leak).
+  Quotes are now signed by an external secure element over SPI.
+* Streaming measurement + DMA, OTP, TRNG/HMAC-DRBG, tamper mesh, AXI and UART
+  bridges, boot-ROM hardware code page, IRQs: implemented and tested.
+* Remaining blockers are tracked in `LIMITATIONS.md`.

@@ -28,6 +28,9 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fmt;
 
+pub mod hw;
+pub use hw::{hw_body, issue_cert_for_pubkey, sign_hw_quote, verify_hw, HwPolicy, HwQuote};
+
 /// Domain-separation tag for certificate signatures.
 pub const CERT_TAG: &[u8] = b"AI-ID-CERT-V1";
 /// Number of PCRs carried in a quote.
@@ -86,6 +89,10 @@ pub enum VerifyError {
     ConfigNotAllowed(String),
     PcrMismatch(u8),
     PcrIndexOutOfRange(u8),
+    Tampered(u8),
+    Lifecycle(u8),
+    DeviceNotAllowed(String),
+    HwRevNotAllowed(String),
 }
 
 impl fmt::Display for VerifyError {
@@ -106,13 +113,17 @@ impl fmt::Display for VerifyError {
             VerifyError::ConfigNotAllowed(c) => write!(f, "config {c} not allowed"),
             VerifyError::PcrMismatch(i) => write!(f, "PCR{i} mismatch"),
             VerifyError::PcrIndexOutOfRange(i) => write!(f, "PCR{i} out of range"),
+            VerifyError::Tampered(t) => write!(f, "device reports tamper flags 0x{t:02x}"),
+            VerifyError::Lifecycle(l) => write!(f, "device lifecycle 0x{l:02x} not allowed"),
+            VerifyError::DeviceNotAllowed(d) => write!(f, "device {d} is not enrolled"),
+            VerifyError::HwRevNotAllowed(r) => write!(f, "hardware revision {r} not allowed"),
         }
     }
 }
 
 impl std::error::Error for VerifyError {}
 
-fn unhex(field: &str, s: &str, len: Option<usize>) -> Result<Vec<u8>, VerifyError> {
+pub(crate) fn unhex(field: &str, s: &str, len: Option<usize>) -> Result<Vec<u8>, VerifyError> {
     let b = hex::decode(s).map_err(|e| VerifyError::Malformed(format!("{field}: {e}")))?;
     if let Some(n) = len {
         if b.len() != n {
@@ -127,10 +138,11 @@ fn unhex(field: &str, s: &str, len: Option<usize>) -> Result<Vec<u8>, VerifyErro
 
 fn parse_key(field: &str, s: &str) -> Result<VerifyingKey, VerifyError> {
     let b = unhex(field, s, None)?;
-    VerifyingKey::from_sec1_bytes(&b).map_err(|_| VerifyError::Malformed(format!("{field}: bad P-256 key")))
+    VerifyingKey::from_sec1_bytes(&b)
+        .map_err(|_| VerifyError::Malformed(format!("{field}: bad P-256 key")))
 }
 
-fn parse_sig(field: &str, s: &str) -> Result<Signature, VerifyError> {
+pub(crate) fn parse_sig(field: &str, s: &str) -> Result<Signature, VerifyError> {
     let b = unhex(field, s, Some(64))?;
     Signature::from_slice(&b).map_err(|_| VerifyError::Malformed(format!("{field}: bad signature")))
 }
@@ -146,7 +158,7 @@ pub fn transcript(q: &Quote) -> Result<[u8; 32], VerifyError> {
     Ok(h.finalize().into())
 }
 
-fn cert_message(pubkey: &[u8]) -> Vec<u8> {
+pub(crate) fn cert_message(pubkey: &[u8]) -> Vec<u8> {
     let mut m = CERT_TAG.to_vec();
     m.extend_from_slice(pubkey);
     m
@@ -191,21 +203,32 @@ pub fn verify(
     }
     let skew = now.abs_diff(q.timestamp);
     if skew > policy.max_skew_secs {
-        return Err(VerifyError::Stale { skew, max: policy.max_skew_secs });
+        return Err(VerifyError::Stale {
+            skew,
+            max: policy.max_skew_secs,
+        });
     }
     // 2. signer trust chain and quote signature
     let leaf = verify_chain(chain, policy)?;
     let t = transcript(q)?;
     let sig = parse_sig("sig", &q.sig)?;
-    leaf.verify(&t, &sig).map_err(|_| VerifyError::BadQuoteSignature)?;
+    leaf.verify(&t, &sig)
+        .map_err(|_| VerifyError::BadQuoteSignature)?;
     // 3. appraisal policy: approved model, config and measurements
     let model = q.model_digest.to_ascii_lowercase();
-    if !policy.allowed_models.iter().any(|m| m.to_ascii_lowercase() == model) {
+    if !policy
+        .allowed_models
+        .iter()
+        .any(|m| m.to_ascii_lowercase() == model)
+    {
         return Err(VerifyError::ModelNotAllowed(model));
     }
     let config = q.config_digest.to_ascii_lowercase();
     if !policy.allowed_configs.is_empty()
-        && !policy.allowed_configs.iter().any(|c| c.to_ascii_lowercase() == config)
+        && !policy
+            .allowed_configs
+            .iter()
+            .any(|c| c.to_ascii_lowercase() == config)
     {
         return Err(VerifyError::ConfigNotAllowed(config));
     }
@@ -235,7 +258,10 @@ fn sec1(k: &SigningKey) -> Vec<u8> {
 pub fn issue_cert(issuer: &SigningKey, subject: &SigningKey) -> Cert {
     let pk = sec1(subject);
     let sig: Signature = issuer.sign(&cert_message(&pk));
-    Cert { pubkey: hex::encode(&pk), sig: hex::encode(sig.to_bytes()) }
+    Cert {
+        pubkey: hex::encode(&pk),
+        sig: hex::encode(sig.to_bytes()),
+    }
 }
 
 /// Builds a chain root -> ... -> leaf from signing keys (root self-signed).
@@ -311,7 +337,10 @@ mod tests {
         let alias = key(3);
         let chain = build_chain(&[&root, &device, &alias]);
         let mut pcrs = [[0u8; 32]; NUM_PCRS];
-        for (i, l) in ["BL2", "U-Boot", "kernel", "weights", "config"].iter().enumerate() {
+        for (i, l) in ["BL2", "U-Boot", "kernel", "weights", "config"]
+            .iter()
+            .enumerate()
+        {
             pcrs[i] = pcr_extend(&[0; 32], &sha(l));
         }
         let model = sha("model-weights-v1");
@@ -328,7 +357,14 @@ mod tests {
             pcrs: want,
             max_skew_secs: 60,
         };
-        Fx { root, alias, chain, policy, nonce, quote }
+        Fx {
+            root,
+            alias,
+            chain,
+            policy,
+            nonce,
+            quote,
+        }
     }
 
     fn run(f: &Fx) -> Result<(), VerifyError> {
@@ -397,8 +433,14 @@ mod tests {
             }
             p
         };
-        let m: [u8; 32] = hex::decode(&f.quote.model_digest).unwrap().try_into().unwrap();
-        let c: [u8; 32] = hex::decode(&f.quote.config_digest).unwrap().try_into().unwrap();
+        let m: [u8; 32] = hex::decode(&f.quote.model_digest)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let c: [u8; 32] = hex::decode(&f.quote.config_digest)
+            .unwrap()
+            .try_into()
+            .unwrap();
         f.quote = sign_quote(&other, &f.nonce, &pcrs, &m, &c, 1_000);
         assert_eq!(run(&f), Err(VerifyError::BadQuoteSignature));
     }

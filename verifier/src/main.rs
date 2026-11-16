@@ -3,6 +3,8 @@
 //!
 //!   ai-id-verifier verify --quote Q.json --chain C.json --policy P.json \
 //!                         --nonce HEX [--now UNIX_SECS]
+//!   ai-id-verifier verify-hw --quote Q.json --chain C.json --policy P.json \
+//!                            --nonce HEX [--now UNIX_SECS]
 //!   ai-id-verifier demo [--out DIR]
 //!
 //! `verify` exits 0 and prints `VERIFIED` on success, exits 1 and prints
@@ -20,11 +22,16 @@ use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn arg(args: &[String], name: &str) -> Option<String> {
-    args.iter().position(|a| a == name).and_then(|i| args.get(i + 1).cloned())
+    args.iter()
+        .position(|a| a == name)
+        .and_then(|i| args.get(i + 1).cloned())
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, String> {
@@ -45,6 +52,26 @@ fn cmd_verify(args: &[String]) -> Result<(), String> {
     verify(&quote, &chain, &policy, &nonce, now).map_err(|e| e.to_string())
 }
 
+fn cmd_verify_hw(args: &[String]) -> Result<String, String> {
+    let need = |n: &str| arg(args, n).ok_or_else(|| format!("missing {n}"));
+    let quote: HwQuote = read_json(&need("--quote")?)?;
+    let chain: Vec<Cert> = read_json(&need("--chain")?)?;
+    let policy: HwPolicy = read_json(&need("--policy")?)?;
+    let nonce = hex::decode(need("--nonce")?).map_err(|e| format!("--nonce: {e}"))?;
+    let now = match arg(args, "--now") {
+        Some(s) => s.parse().map_err(|e| format!("--now: {e}"))?,
+        None => now_secs(),
+    };
+    verify_hw(&quote, &chain, &policy, &nonce, now).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "device {} rev {} counter {} model {}",
+        &quote.device_id[..16],
+        quote.hw_rev,
+        quote.counter,
+        &quote.model_digest[..16]
+    ))
+}
+
 fn write(dir: &Path, name: &str, v: &impl serde::Serialize) -> Result<String, String> {
     let p = dir.join(name);
     let s = serde_json::to_string_pretty(v).map_err(|e| e.to_string())?;
@@ -61,7 +88,10 @@ fn cmd_demo(args: &[String]) -> Result<(), String> {
     let chain = build_chain(&[&root, &device, &alias]);
 
     let mut pcrs = [[0u8; 32]; NUM_PCRS];
-    for (i, layer) in ["BL2", "U-Boot", "kernel", "weights", "config"].iter().enumerate() {
+    for (i, layer) in ["BL2", "U-Boot", "kernel", "weights", "config"]
+        .iter()
+        .enumerate()
+    {
         let d: [u8; 32] = Sha256::digest(layer.as_bytes()).into();
         pcrs[i] = pcr_extend(&[0; 32], &d);
     }
@@ -106,7 +136,7 @@ fn cmd_demo(args: &[String]) -> Result<(), String> {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage:\n  ai-id-verifier verify --quote Q.json --chain C.json --policy P.json --nonce HEX [--now SECS]\n  ai-id-verifier demo [--out DIR]"
+        "usage:\n  ai-id-verifier verify --quote Q.json --chain C.json --policy P.json --nonce HEX [--now SECS]\n  ai-id-verifier verify-hw --quote Q.json --chain C.json --policy P.json --nonce HEX [--now SECS]\n  ai-id-verifier demo [--out DIR]"
     );
     ExitCode::from(2)
 }
@@ -117,6 +147,16 @@ fn main() -> ExitCode {
         Some("verify") => match cmd_verify(&args[2..]) {
             Ok(()) => {
                 println!("VERIFIED");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                println!("REJECTED: {e}");
+                ExitCode::from(1)
+            }
+        },
+        Some("verify-hw") => match cmd_verify_hw(&args[2..]) {
+            Ok(info) => {
+                println!("VERIFIED hardware quote: {info}");
                 ExitCode::SUCCESS
             }
             Err(e) => {

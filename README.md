@@ -11,63 +11,104 @@ hardware and software stack for AI identity attestation that can be deployed acr
 visual representation of AI/AGI/LLM identity layers and a conceptual "birth certificate" ID for an AI system.
 <img width="1536" height="1152" alt="image" src="https://github.com/user-attachments/assets/38d2c581-a2be-4763-8ca2-e6a9ba3dabaf" />
 
-## Status
+## Status — v0.1.0 working prototype
 
-Research reference implementation, **not production-certified**. The
-integrated engine and the software verifier run end to end; hardware quote
-signing, the physical PUF and side-channel hardening are still blocked.
-See [`docs/OPERATIONAL.md`](docs/OPERATIONAL.md) for exactly what works and
-how it is tested, and [`docs/REMEDIATION.md`](docs/REMEDIATION.md) for the
-open blockers.
+A working, tested prototype of the whole chain: **RTL identity engine →
+hardware quote → Rust verifier → AI Birth Certificate**, plus a host HWID /
+offline-activation / TPM attestation tool. Not production-certified — read
+[`LIMITATIONS.md`](LIMITATIONS.md). Block-by-block map:
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+* **RTL** (`rtl/`): AXI4-Lite/APB register file with doorbell + IRQ, OTP fuse
+  model, TRNG with SP 800-90B health tests, HMAC-DRBG key ladder into key
+  SRAM, DICE CDI + public device ID, streaming SHA-256 weight measurement over
+  DMA, 16-entry extend-only PCR bank, AIQ2 quote engine that gets an ECDSA
+  P-256 signature from an attached **secure element over SPI** (the engine
+  never holds the signing key), tamper mesh + zeroize, and a boot-ROM
+  **hardware code page** (8×8 font + banner). Simulated with Verilator,
+  synthesized with Yosys + nextpnr for the ULX3S (ECP5-85F).
+* **`hwid`** (`hwid/`): privacy-preserving salted HWID (Linux/Windows/macOS)
+  with the component list, offline-activation challenge/response codes with
+  checksums (Ed25519), TPM 2.0 EK/AK quote via tpm2-tools or a clearly marked
+  software fallback. Read-only: no spoofing, not for HWID bans/anti-cheat.
+* **`aiid`** (`hwid/`): `aiid cert create --weights` → signed in-toto/DSSE
+  AI Birth Certificate (weights SHA-256, architecture, checkpoint, instance
+  ID, environment digest, HWID + attestation, optional engine quote) and
+  `aiid cert verify` (signature, chain to the vendor CA, freshness, re-hash).
+* **`ai-id-verifier`** (`verifier/`): appraises software and hardware (AIQ2)
+  quotes.
+
+## Quick start
+
+### Use the release binaries (Linux x86_64, static)
+
+```sh
+curl -LO https://github.com/DeontewattsV1/ai-id-engine/releases/download/v0.1.0/aiid-v0.1.0-linux-x86_64.tar.gz
+tar xzf aiid-v0.1.0-linux-x86_64.tar.gz && cd aiid-v0.1.0-linux-x86_64
+./hwid show                      # HWID + components (salted hashes)
+./hwid challenge                 # offline-activation code, e.g. 200Q-KD6C-8PGX-KSJG-9
+./aiid ca init --dir ca          # TEST-ONLY demo vendor CA
+./aiid cert create --weights path/to/model --ca ca --out cert.json --svg cert.svg
+./aiid cert verify --cert cert.json --ca ca --weights path/to/model
+```
+
+### Build and run everything from source
+
+Requirements: make, a C++ compiler, OpenSSL headers, Python 3 (+ numpy),
+Rust (stable), Verilator ≥ 5.020 and Icarus Verilog (the CI uses the
+[OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build), which also
+provides Yosys/nextpnr for the FPGA flow). Optional: `tpm2-tools` (+ `swtpm`
+to test without a TPM).
+
+```sh
+make demo     # RTL sim measures a real Hugging Face model (prajjwal1/bert-tiny) and signs
+              # an AIQ2 quote via the SE model -> Rust verifier -> aiid cert create/verify
+make test     # lint + full-chip sim + RTL unit tests + regmap + verifier + hwid tests
+make fpga     # ULX3S bitstream + utilization/timing reports in fpga/build/
+```
+
+Individual targets:
+
+```sh
+make lint         # Verilator -Wall: hardware, simulation and fuse-UDS builds + bridges
+make sim          # id_engine_top end-to-end (192 checks vs OpenSSL); SIM_ARGS="+weights=FILE"
+make rtl-unit     # SHA-256, HMAC, HMAC-DRBG, TRNG, AXI/UART bridges, Montgomery, BCH KATs
+make regmap       # fw/id_engine_regs.h vs RTL decoder and STATUS bits
+make verifier     # Rust verifier (incl. a quote produced by the RTL)
+make hwid         # hwid/aiid unit + integration tests
+```
+
+### Offline activation round trip
+
+```sh
+hwid license keygen --out vendor.key            # vendor (TEST key); prints public key
+hwid challenge --product 7                      # customer -> vendor
+hwid license issue --key vendor.key --challenge <CODE> --days 365
+hwid license verify --pub <PUBHEX> --response <RESPONSE> --product 7
+```
+
+### Hardware quote
+
+```sh
+ai-id-verifier verify-hw --quote engine_quote.json --chain engine_chain.json \
+                         --policy hw_policy.json --nonce <hex>
+```
+
+`make demo` writes all of these files to `demo-out/`. No API keys or secrets
+are needed for anything in this repository; every key is generated at run
+time and the demo CA is TEST-ONLY.
 
 ## Repository layout
 
 | Path | Contents |
 |------|----------|
-| `rtl/` | Verilog: `id_engine_top`, SHA-256/HMAC, PCR bank, DICE CDI, seal unit, key ladder, tamper control, ECC/BCH research blocks |
-| `tb/` | Verilator end-to-end testbench (`tb_id_engine.cpp`) and Icarus unit testbenches |
-| `test/`, `tools/` | Python math oracles, vector generators, PUF/TVLA harnesses, register-map check |
-| `verifier/` | Rust library + CLI that verifies attestation quotes and key chains |
+| `rtl/` | Verilog engine (see ARCHITECTURE.md) plus ECC/BCH research blocks |
+| `tb/` | Verilator full-chip testbench + SE model, Icarus unit testbenches |
+| `fpga/` | ULX3S top, pin constraints, ring-oscillator entropy, Yosys/nextpnr flow |
+| `hwid/` | Rust host tools `hwid` and `aiid` |
+| `verifier/` | Rust quote verifier library + CLI |
+| `scripts/demo.sh` | `make demo` |
+| `test/`, `tools/` | Python oracles, vector generators, regmap check, ROM generator, UART host tool |
 | `fw/` | Linux platform driver core and register ABI header |
-| `formal/`, `constraints/`, `plat/` | Formal sketches, timing constraints, platform glue (not yet gated) |
-
-## Quick start
-
-Requirements: GNU make, Python 3 with `numpy`, Verilator 5, Icarus Verilog,
-a C++ compiler, OpenSSL development headers and a Rust toolchain. On
-Ubuntu/Debian:
-
-```sh
-sudo apt-get install -y make g++ verilator iverilog libssl-dev python3-numpy cargo
-```
-
-Run everything:
-
-```sh
-make test           # lint + sim + rtl-unit + regmap + verifier + PUF/TVLA harness checks
-```
-
-Or individually:
-
-```sh
-make lint           # Verilator -Wall lint, hardware and simulation builds
-make sim            # end-to-end id_engine_top simulation checked against OpenSSL
-make rtl-unit       # SHA-256, HMAC, Montgomery, mod-n, inverse and BCH KATs
-make regmap         # firmware header vs RTL register decoder
-make verifier       # Rust verifier unit and CLI tests
-make -C fw          # build the Linux driver core (needs kernel headers)
-```
-
-Verify a quote with the CLI:
-
-```sh
-cd verifier
-cargo run -- demo --out demo-out        # throwaway keys; writes quote/chain/policy JSON
-cargo run -- verify --quote demo-out/quote.json --chain demo-out/chain.json \
-                    --policy demo-out/policy.json --nonce <hex printed by demo>
-```
-
-`verify` prints `VERIFIED` and exits 0, or prints `REJECTED: <reason>` and
-exits 1. The quote, chain and policy formats are documented in
-`verifier/src/lib.rs`. No API keys or secrets are needed for anything in
-this repository.
+| `research/unsafe-ecdsa/` | Quarantined key-leaking ECDSA (do not use) |
+| `docs/` | Operational gates and remediation history |

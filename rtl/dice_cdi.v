@@ -4,6 +4,10 @@
 //   CDI_n     = HMAC-SHA256(UDS_or_CDI_{n-1}, tag || label || measurement)
 //               tag = "DICE" for the root layer, "LAYE" otherwise (52 bytes)
 //   alias_key = HMAC-SHA256(CDI_n, "ALIA" || label)          (20 bytes)
+//   device_id = HMAC-SHA256(CDI_n, "DVID" || label)          (20 bytes)
+// alias_key is secret (seeds the key ladder); device_id is public and is
+// the hardware identity carried in every quote (a DICE compound device ID:
+// it changes if the UDS or the measured layer changes).
 // The parent secret is latched at layer_start. Outputs are cleared by
 // zeroize. Verified bit-exactly against OpenSSL HMAC in tb/tb_id_engine.cpp.
 `timescale 1ns/1ps
@@ -19,6 +23,7 @@ module dice_cdi (
     input  wire [255:0] measurement,
     output reg  [255:0] cdi,
     output reg  [255:0] alias_key,
+    output reg  [255:0] device_id,
     output reg          valid,          // level: outputs hold a derived value
     output wire         busy
 );
@@ -41,10 +46,10 @@ module dice_cdi (
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            state <= 0; valid <= 0; cdi <= 0; alias_key <= 0; h_start <= 0;
+            state <= 0; valid <= 0; cdi <= 0; alias_key <= 0; device_id <= 0; h_start <= 0;
             msg <= 0; msg_bits <= 0; key <= 0; label_q <= 0;
         end else if (zeroize) begin
-            state <= 0; valid <= 0; cdi <= 0; alias_key <= 0; h_start <= 0;
+            state <= 0; valid <= 0; cdi <= 0; alias_key <= 0; device_id <= 0; h_start <= 0;
             msg <= 0; key <= 0;
         end else begin
             h_start <= 0;
@@ -65,7 +70,14 @@ module dice_cdi (
                    end
                 3: begin h_start <= 1; state <= 4; end
                 4: if (h_done) begin
-                       alias_key <= h_mac; valid <= 1; key <= 0; state <= 0;
+                       alias_key <= h_mac; key <= cdi;
+                       msg <= {32'h44564944, label_q, 352'b0};
+                       msg_bits <= 9'd160;
+                       state <= 5;
+                   end
+                5: begin h_start <= 1; state <= 6; end
+                6: if (h_done) begin
+                       device_id <= h_mac; valid <= 1; key <= 0; state <= 0;
                    end
                 default: state <= 0;
             endcase
