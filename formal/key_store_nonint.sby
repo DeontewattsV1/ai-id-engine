@@ -1,8 +1,10 @@
 # Two-copy non-interference: no key bit reaches status/zeroize/key_valid.
+# depth 4: induction closes on a 3-step window; depth 6 made the base case
+# stall for 20+ min on CI's yices. A key-to-status leak mutant still FAILs.
 [options]
 mode prove
 timeout 1200
-depth 6
+depth 4
 
 [engines]
 smtbmc yices
