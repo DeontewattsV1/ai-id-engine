@@ -13,6 +13,7 @@ test/bch_vectors.txt
 test/mont_vectors.txt
 hwid/target/
 fpga/build/
+fpga/build_*/
 *.pem
 *.key
 release/

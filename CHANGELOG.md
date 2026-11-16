@@ -30,6 +30,10 @@
   mandatory provenance (swtpm and the software key are `software`), model,
   stimulus and TVLA parameters bound under the TPM/software signature
   (docs/EVIDENCE.md).
+- Reproducible FPGA bitstream (`make -C fpga repro`, `REPRO=1` with a
+  public test UDS, nextpnr `--seed 1 --threads 1`): CI builds twice and
+  fails on any digest difference, then checks `fpga/repro.sha256` and
+  `fpga/toolchain.lock` (docs/REPRODUCIBLE.md).
 - Verifier: ADR-0003 ticket check with replay, skew and tamper tests.
 - hwid: the software-attestation key is published without clobbering
   (hard link or exclusive create), fixing a Windows CI race.

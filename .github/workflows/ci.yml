@@ -218,6 +218,40 @@ jobs:
             fpga/build/nextpnr.log
             fpga/build/nextpnr_report.json
 
+  repro:
+    name: Reproducible bitstream (two clean REPRO=1 builds, identical digests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: ${{ env.OSS_CAD_SUITE_VERSION }}
+          github-token: ${{ github.token }}
+      - name: Build A
+        run: make -C fpga repro B=build_a
+      - name: Build B (fresh directory)
+        run: make -C fpga repro B=build_b
+      - name: A and B must be bit-identical
+        run: diff -u fpga/build_a/digests.txt fpga/build_b/digests.txt
+      - name: Compare with committed expectations (fpga/repro.sha256, fpga/toolchain.lock)
+        run: |
+          make -C fpga repro-check B=build_a
+          {
+            echo "### Reproducible bitstream (REPRO=1, public test UDS)"
+            echo '```'
+            cat fpga/build_a/digests.txt fpga/build_a/toolchain.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repro-digests
+          path: |
+            fpga/build_a/digests.txt
+            fpga/build_a/toolchain.txt
+            fpga/build_b/digests.txt
+
   driver:
     name: Linux driver core builds against kernel headers
     runs-on: ubuntu-latest
