@@ -1,0 +1,13 @@
+[options]
+mode prove
+depth 4
+
+[engines]
+smtbmc z3
+
+[script]
+read -formal otp_fuses.v
+prep -top otp_fuses
+
+[files]
+rtl/otp_fuses.v

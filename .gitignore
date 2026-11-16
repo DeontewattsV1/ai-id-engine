@@ -15,3 +15,5 @@ fpga/build/
 *.pem
 *.key
 release/
+formal/*/
+!formal/Security-specific

@@ -1,0 +1,20 @@
+# Extend-only proof for pcr_bank. The SHA-256 compression core is cut out
+# (its outputs become unconstrained), so the proof holds for ANY hash output:
+# it is about the control/write path, not about SHA-256 itself (SHA-256 is
+# covered by the NIST KATs in tb/tb_sha256_*.sv).
+[options]
+mode prove
+depth 4
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal sha256_compress.v pcr_bank.v
+prep -top pcr_bank
+cutpoint pcr_bank/u_h
+prep -top pcr_bank
+
+[files]
+rtl/sha256_compress.v
+rtl/pcr_bank.v

@@ -5,6 +5,15 @@ use ai_id_host::{ca, cert, hwid, now_secs};
 use ai_id_verifier::{issue_cert, pcr_extend, sign_hw_quote, Cert, HwQuote};
 use p256::ecdsa::SigningKey;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
+
+// Tests set the process-global AIID_HOME; serialize them so one test never
+// reads the software-attestation key another test is still writing.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 fn tmp(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("aiid-test-{name}-{}", std::process::id()));
@@ -77,6 +86,7 @@ fn failed(c: &[cert::Check]) -> Vec<String> {
 
 #[test]
 fn create_verify_and_negative_cases() {
+    let _env = env_lock();
     let (d, model) = setup("flow");
     let now = now_secs();
     let env = create(&d, &model, None, now);
@@ -125,6 +135,7 @@ fn create_verify_and_negative_cases() {
 
 #[test]
 fn engine_quote_is_checked() {
+    let _env = env_lock();
     let (d, model) = setup("engine");
     let now = now_secs();
     let (_, wsha, _) = cert::hash_weights(&model).unwrap();
@@ -184,6 +195,7 @@ fn engine_quote_is_checked() {
 
 #[test]
 fn multi_file_manifest_digest() {
+    let _env = env_lock();
     let d = tmp("multi");
     std::fs::write(d.join("a.bin"), b"aaa").unwrap();
     std::fs::write(d.join("b.safetensors"), b"bbb").unwrap();
