@@ -289,33 +289,55 @@ pub fn soft_key_path() -> PathBuf {
     base.join("aiid").join("soft-attest.key")
 }
 
+fn read_soft_key(p: &std::path::Path) -> Result<Option<ed25519_dalek::SigningKey>, String> {
+    let s = match std::fs::read_to_string(p) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("{}: {e}", p.display())),
+    };
+    let b = hex::decode(s.trim()).map_err(|e| format!("{}: {e}", p.display()))?;
+    let a: [u8; 32] = b
+        .try_into()
+        .map_err(|_| format!("{}: bad key length", p.display()))?;
+    Ok(Some(ed25519_dalek::SigningKey::from_bytes(&a)))
+}
+
 fn soft_key() -> Result<ed25519_dalek::SigningKey, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     let p = soft_key_path();
-    if let Ok(s) = std::fs::read_to_string(&p) {
-        let b = hex::decode(s.trim()).map_err(|e| format!("{}: {e}", p.display()))?;
-        let a: [u8; 32] = b
-            .try_into()
-            .map_err(|_| format!("{}: bad key length", p.display()))?;
-        return Ok(ed25519_dalek::SigningKey::from_bytes(&a));
+    if let Some(k) = read_soft_key(&p)? {
+        return Ok(k);
     }
     let k = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    // Write to a private temp file and rename, so a concurrent reader never
-    // sees a partially written key.
-    let tmp = p.with_extension(format!("key.tmp{}", std::process::id()));
+    // Publish without clobbering: write a uniquely named private temp file,
+    // then hard-link it into place. The link fails if another process or
+    // thread created the key first, in which case that key is used, so every
+    // caller ends up with the same persisted key and no reader ever sees a
+    // partially written file.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = p.with_extension(format!(
+        "key.tmp.{}.{}.{}",
+        std::process::id(),
+        nanos,
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
     crate::write_private(&tmp, hex::encode(k.to_bytes()).as_bytes())
         .map_err(|e| format!("{}: {e}", tmp.display()))?;
-    if let Err(e) = std::fs::rename(&tmp, &p) {
-        let _ = std::fs::remove_file(&tmp);
-        if p.exists() {
-            // Lost a creation race: use the key that won.
-            return soft_key();
-        }
-        return Err(format!("{}: {e}", p.display()));
+    let linked = std::fs::hard_link(&tmp, &p);
+    let _ = std::fs::remove_file(&tmp);
+    match linked {
+        Ok(()) => Ok(k),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => read_soft_key(&p)?
+            .ok_or_else(|| format!("{}: key vanished after a creation race", p.display())),
+        Err(e) => Err(format!("{}: {e}", p.display())),
     }
-    Ok(k)
 }
 
 /// Produces attestation evidence. `mode`: "auto", "tpm" (require) or "software".

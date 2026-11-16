@@ -115,15 +115,18 @@ fpga:
 # Known-answer tests: NIST SHA-256 multi-block (incl. 1M x 'a'), HMAC RFC 4231
 # TC1-5 on the RTL; ECDSA P-256 RFC 6979 on the SE model's OpenSSL and on the
 # Rust p256 used by the verifier and aiid.
-kat:
+kat: kat-rtl
+	cd verifier && $(CARGO) test --locked --test ecdsa_kat
+	cd hwid && $(CARGO) test --locked --test ecdsa_kat
+
+# RTL + OpenSSL part of `kat` (the Rust KATs already run under `verifier`/`hwid`).
+kat-rtl:
 	iverilog -g2012 -s tb_sha256_nist -o /tmp/ai-id-tb-nist rtl/sha256_compress.v tb/tb_sha256_nist.sv
 	vvp -n /tmp/ai-id-tb-nist
 	iverilog -g2012 -s tb_hmac_rfc4231 -o /tmp/ai-id-tb-4231 rtl/sha256_compress.v rtl/hmac_sha256.v tb/tb_hmac_rfc4231.sv
 	vvp -n /tmp/ai-id-tb-4231
 	$(CC) -O2 -Wall -Wno-deprecated-declarations -o /tmp/ai-id-ecdsa-kat test/kat/ecdsa_p256_kat.c -lcrypto
 	/tmp/ai-id-ecdsa-kat
-	cd verifier && $(CARGO) test --locked --test ecdsa_kat
-	cd hwid && $(CARGO) test --locked --test ecdsa_kat
 
 # Formal (SymbiYosys): gf_mult equivalence, OTP fuse semantics (OR-only,
 # lock word, UDS unreadable), PCR bank extend-only (SHA core cut out).
@@ -131,16 +134,16 @@ formal-all: formal
 	sby -f formal/otp_fuses.sby
 	sby -f formal/pcr_bank.sby
 
-.PHONY: kat formal-all
+.PHONY: kat kat-rtl formal-all
 
 # Everything that defines "operational" for this repo (see docs/OPERATIONAL.md).
-test: lint sim rtl-unit regmap verifier hwid kat
+test: lint sim rtl-unit regmap verifier hwid kat-rtl
 	PYTHONPATH=test python3 test/puf_characterize_test.py
 	PYTHONPATH=test python3 test/tvla_test.py
 	@echo "ALL OPERATIONAL GATES PASS"
 
 clean:
-	rm -rf obj_dir obj_cov verifier/target verifier/demo-out hwid/target demo-out coverage.dat formal/gf_mult
+	rm -rf obj_dir obj_cov verifier/target verifier/demo-out hwid/target demo-out coverage.dat formal/gf_mult formal/otp_fuses formal/pcr_bank
 	$(MAKE) -C fpga clean
 
 .PHONY: regmap verifier hwid release-bins demo fpga test clean

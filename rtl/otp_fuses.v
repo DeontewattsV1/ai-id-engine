@@ -89,7 +89,10 @@ module otp_fuses #(
                 assert ((f_past[fi] & ~f[fi]) == 32'h0);           // never 1 -> 0
                 if (f_past[15][fi]) assert (f[fi] == f_past[fi]);   // locked => frozen
             end
-        if (secret) assert (rdata == 32'h0);                       // UDS unreadable
+        // Address decode written independently of `secret`; words 5..12
+        // are reachable with non-zero values through prog (not locked).
+        if (addr > 4'd4 && addr < 4'd13) assert (rdata == 32'h0);  // UDS unreadable
+        else                             assert (rdata == f[addr]); // others readable
     end
 `endif
 endmodule
