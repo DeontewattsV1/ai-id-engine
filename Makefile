@@ -198,7 +198,7 @@ build/obj_%/tvla: build/tvla_%.v sim/sky130_fd_sc_hd_cells.v tb/tvla_harness.cpp
 	$(VERILATOR) --cc --exe --build -j 0 -O3 --x-assign fast --x-initial fast \
 	  -Wno-fatal -Wno-lint -Wno-style --top-module tvla_dut \
 	  -CFLAGS "-O2 -DDUT_KIND=$(DUT_KIND_$*)" -Mdir build/obj_$* -o tvla \
-	  build/tvla_$*.v sim/sky130_fd_sc_hd_cells.v tb/tvla_harness.cpp
+	  $(abspath build/tvla_$*.v sim/sky130_fd_sc_hd_cells.v tb/tvla_harness.cpp)
 
 COLLECT = python3 tools/tvla_collect.py -j $(TVLA_J) --samples $(T_M) --tau $(T_TAU) --noise $(T_NOISE)
 
@@ -239,7 +239,7 @@ TRACE_FLAG_fst := --trace-fst
 build/obj_$(TRACE_FMT)/tvla_plain_wave: build/tvla_plain.v sim/sky130_fd_sc_hd_cells.v tb/tvla_harness.cpp
 	$(VERILATOR) --cc --exe --build -j 0 -O2 $(TRACE_FLAG_$(TRACE_FMT)) -Wno-fatal -Wno-lint -Wno-style \
 	  --top-module tvla_dut -CFLAGS "-O2 -DDUT_KIND=0" -Mdir build/obj_$(TRACE_FMT) -o tvla_plain_wave \
-	  build/tvla_plain.v sim/sky130_fd_sc_hd_cells.v tb/tvla_harness.cpp
+	  $(abspath build/tvla_plain.v sim/sky130_fd_sc_hd_cells.v tb/tvla_harness.cpp)
 tvla-xcheck: build/obj_$(TRACE_FMT)/tvla_plain_wave
 	mkdir -p $(TV)
 	build/obj_$(TRACE_FMT)/tvla_plain_wave --mode fixed --n 1 --samples 400 --caps build/tvla_plain.caps --out $(TV)/xcheck --fst $(TV)/xcheck.$(TRACE_FMT) --fst-traces 2 --check 2
