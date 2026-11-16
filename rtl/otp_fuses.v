@@ -73,4 +73,23 @@ module otp_fuses #(
         if (!rst_n)    prog_err <= 0;
         else if (prog) prog_err <= f[15][{1'b0, addr}];
     end
+
+`ifdef FORMAL
+    // formal/otp_fuses.sby: OTP semantics hold for every reachable state.
+    reg        f_past_valid = 1'b0;
+    reg [31:0] f_past [0:15];
+    integer    fi;
+    always @(posedge clk) begin
+        f_past_valid <= 1'b1;
+        for (fi = 0; fi < 16; fi = fi + 1) f_past[fi] <= f[fi];
+    end
+    always @(*) begin
+        if (f_past_valid)
+            for (fi = 0; fi < 16; fi = fi + 1) begin
+                assert ((f_past[fi] & ~f[fi]) == 32'h0);           // never 1 -> 0
+                if (f_past[15][fi]) assert (f[fi] == f_past[fi]);   // locked => frozen
+            end
+        if (secret) assert (rdata == 32'h0);                       // UDS unreadable
+    end
+`endif
 endmodule

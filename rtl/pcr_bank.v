@@ -55,6 +55,33 @@ module pcr_bank (
         end
     end
 
+`ifdef FORMAL
+    // formal/pcr_bank.sby: extend-only. A PCR changes only when an extend
+    // completes, only the selected PCR changes, and it takes the SHA-256
+    // output (never a caller-chosen value).
+    reg         f_past_valid = 1'b0;
+    reg [255:0] f_pcr [0:15];
+    reg [2:0]   f_st;
+    reg         f_done;
+    reg [3:0]   f_sel;
+    reg [255:0] f_dig;
+    reg         f_rst = 1'b0;
+    integer     fj;
+    always @(posedge clk) begin
+        f_past_valid <= 1'b1;
+        for (fj = 0; fj < 16; fj = fj + 1) f_pcr[fj] <= pcr[fj];
+        f_rst <= rst_n; f_st <= st; f_done <= h_done; f_sel <= sel_q; f_dig <= h_dig;
+    end
+    always @(*) begin
+        if (f_past_valid && f_rst && rst_n)
+            for (fj = 0; fj < 16; fj = fj + 1)
+                if (pcr[fj] != f_pcr[fj]) begin
+                    assert (f_st == 3'd4 && f_done && f_sel == fj[3:0]);
+                    assert (pcr[fj] == f_dig);
+                end
+    end
+`endif
+
     integer m;
     always @(*) begin
         digest_out = pcr[sel];

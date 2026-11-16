@@ -30,6 +30,10 @@ jobs:
         run: make rtl-unit
       - name: Firmware/RTL register ABI agreement
         run: make regmap
+      - name: Known-answer tests (NIST SHA-256, RFC 4231 HMAC, RFC 6979 ECDSA P-256)
+        run: make kat
+      - name: Formal (gf_mult, OTP fuse semantics, PCR extend-only)
+        run: make formal-all
 
   verifier:
     name: Rust quote verifier
