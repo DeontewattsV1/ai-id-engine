@@ -18,3 +18,4 @@ release/
 formal/*/
 !formal/Security-specific
 test/masked_vectors.txt
+build/
