@@ -87,6 +87,9 @@
 #define IE_ST_MESH_BREACH    (1u << 17)
 #define IE_ST_QERR_SHIFT     20     /* [23:20] quote error code, IE_QERR_* */
 #define IE_ST_QERR_MASK      (0xFu << 20)
+/* Coded fault detection (AI_ID_FAULT_DETECT builds; always 0 otherwise). */
+#define IE_ST_FAULT_ALARM    (1u << 24)  /* sticky; only power-on clears it */
+#define IE_ST_FAULT_CORR     (1u << 25)  /* a PCR word single-bit upset was corrected */
 
 #define IE_QERR_NO_ID        1
 #define IE_QERR_TAMPER       2

@@ -15,6 +15,12 @@
 - KATs: NIST SHA-256 multi-block (incl. 1M×'a'), HMAC RFC 4231, and
   ECDSA P-256 RFC 6979 on OpenSSL (SE model) and on Rust p256.
 - Formal: OTP fuse semantics, PCR extend-only (SymbiYosys).
+- Coded fault detection (`AI_ID_FAULT_DETECT`): SEC-DED (39,32) words,
+  Hamming(7,4) FSM codes, a residue-checked `mont_mul_rc`, and a duplicated
+  sticky alarm. `pcr_bank` stores PCRs coded and `id_engine_top` zeroizes on
+  a fault (status bits 24/25). Bit-flip injection testbenches (`make
+  fault-test`) and SymbiYosys proofs, including key non-interference for
+  the reference key store. Detection only, not side-channel hardening.
 - Verifier: ADR-0003 ticket check with replay, skew and tamper tests.
 - hwid: the software-attestation key is published without clobbering
   (hard link or exclusive create), fixing a Windows CI race.

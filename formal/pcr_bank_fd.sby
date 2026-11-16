@@ -1,0 +1,23 @@
+# pcr_bank built with AI_ID_FAULT_DETECT (SEC-DED PCR words, HD3 controller
+# codes). Same extend-only property as formal/pcr_bank.sby, on the decoded
+# PCR values, plus: in fault-free runs the controller code is always legal and
+# every stored word is a valid codeword (fault never fires without an upset).
+# The SHA-256 core is cut out, as in pcr_bank.sby.
+[options]
+mode prove
+depth 4
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DAI_ID_FAULT_DETECT -I. sha256_compress.v secded39_dec.v pcr_bank.v
+prep -top pcr_bank
+cutpoint pcr_bank/u_h
+prep -top pcr_bank
+
+[files]
+rtl/sha256_compress.v
+rtl/secded39_fn.vh
+rtl/secded39_dec.v
+rtl/pcr_bank.v

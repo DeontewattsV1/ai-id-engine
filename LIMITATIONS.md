@@ -118,3 +118,10 @@ CAVP, Common Criteria, or an external security review.
   about the write path; SHA-256 correctness comes from the NIST KATs.
 * HMAC RFC 4231 TC6/TC7 (131-byte keys) are outside the 256-bit key port.
   Longer keys must be pre-hashed by the caller.
+* **Coded fault detection is opt-in and simulation-only evidence**
+  (`AI_ID_FAULT_DETECT`, docs/FAULT-DETECTION.md). It covers PCR storage and
+  the PCR controller in `id_engine_top`; the other blocks are not coded.
+  It detects register bit flips (1-bit corrected, 2-bit detected per word);
+  3+ bit upsets can escape, the residue check misses ~1 in 65535, and none of
+  it is a side-channel countermeasure. Not exercised on an FPGA or under a
+  real fault-injection rig, and off in the default FPGA build.

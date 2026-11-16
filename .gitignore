@@ -1,5 +1,6 @@
 /obj_dir/
 /obj_cov/
+/obj_fd/
 /coverage.dat
 /formal/gf_mult/
 verifier/target/

@@ -26,6 +26,9 @@ lint:
 	$(VERILATOR) --lint-only -Wall -Irtl $(VLT) $(RTL) --top-module id_engine_top
 	$(VERILATOR) --lint-only -Wall -Irtl $(SIM_DEFS) $(VLT) $(RTL) --top-module id_engine_top
 	$(VERILATOR) --lint-only -Wall -Irtl +define+AI_ID_FUSE_UDS $(VLT) $(RTL) --top-module id_engine_top
+	$(VERILATOR) --lint-only -Wall -Irtl +define+AI_ID_FAULT_DETECT $(VLT) $(RTL) --top-module id_engine_top
+	$(VERILATOR) --lint-only -Wall -Irtl $(SIM_DEFS) +define+AI_ID_FAULT_DETECT $(VLT) $(RTL) --top-module id_engine_top
+	for m in fault_alarm key_store_fd mont_mul_rc; do $(VERILATOR) --lint-only -Wall -Irtl $(VLT) $(RTL) --top-module $$m || exit 1; done
 	$(VERILATOR) --lint-only -Wall -Irtl $(VLT) rtl/axil_to_apb.v --top-module axil_to_apb
 	$(VERILATOR) --lint-only -Wall -Irtl $(VLT) rtl/uart_apb_bridge.v --top-module uart_apb_bridge
 
@@ -133,6 +136,10 @@ kat-rtl:
 formal-all: formal
 	sby -f formal/otp_fuses.sby
 	sby -f formal/pcr_bank.sby
+	sby -f formal/fault_alarm.sby
+	sby -f formal/key_store_fd.sby
+	sby -f formal/key_store_nonint.sby
+	sby -f formal/pcr_bank_fd.sby
 
 .PHONY: kat kat-rtl formal-all
 
@@ -260,14 +267,36 @@ tvla-test:
 
 .PHONY: tvla-test
 
+# Coded fault detection (docs/FAULT-DETECTION.md): exhaustive/random bit-flip
+# injection on the SEC-DED code, sticky alarm, HD3 FSM, key store and
+# residue-checked mont_mul; pcr_bank and the full chip with AI_ID_FAULT_DETECT.
+fault-test: obj_fd/Vid_engine_top
+	iverilog -g2012 -I rtl -s tb_fault_detect -o /tmp/ai-id-tb-fd rtl/secded39_enc.v rtl/secded39_dec.v \
+	  rtl/fault_alarm.v rtl/mont_mul.v rtl/mont_mul_rc.v rtl/key_store_fd.v tb/tb_fault_detect.sv
+	vvp -n /tmp/ai-id-tb-fd
+	mkdir -p obj_dir && python3 test/gen_pcr_vectors.py obj_dir/pcr_vectors.hex
+	iverilog -g2012 -DAI_ID_FAULT_DETECT -I rtl -s tb_pcr_bank_fd -o /tmp/ai-id-tb-pcrfd rtl/sha256_compress.v \
+	  rtl/secded39_dec.v rtl/fault_alarm.v rtl/pcr_bank.v tb/tb_pcr_bank_fd.sv
+	vvp -n /tmp/ai-id-tb-pcrfd
+	./obj_fd/Vid_engine_top $(SIM_ARGS)
+
+obj_fd/Vid_engine_top: tb/tb_id_engine.cpp tb/se_model.h $(RTL)
+	$(VERILATOR) --cc --exe --build -j 0 $(VFLAGS) $(SIM_DEFS) +define+AI_ID_FAULT_DETECT \
+	  --top-module id_engine_top --Mdir obj_fd $(VCFLAGS) \
+	  -Irtl -Itb $(VLT) $(RTL) $(abspath tb/tb_id_engine.cpp) -o Vid_engine_top
+
+.PHONY: fault-test
+
 # Everything that defines "operational" for this repo (see docs/OPERATIONAL.md).
-test: lint sim rtl-unit regmap verifier hwid kat-rtl tvla-test
+test: lint sim rtl-unit regmap verifier hwid kat-rtl tvla-test fault-test
 	PYTHONPATH=test python3 test/puf_characterize_test.py
 	PYTHONPATH=test python3 test/tvla_test.py
 	@echo "ALL OPERATIONAL GATES PASS"
 
 clean:
-	rm -rf build obj_dir obj_cov verifier/target verifier/demo-out hwid/target demo-out coverage.dat formal/gf_mult formal/otp_fuses formal/pcr_bank
+	rm -rf build obj_dir obj_cov obj_fd verifier/target verifier/demo-out hwid/target demo-out coverage.dat \
+	  formal/gf_mult formal/otp_fuses formal/pcr_bank formal/pcr_bank_fd formal/fault_alarm \
+	  formal/key_store_fd formal/key_store_nonint
 	$(MAKE) -C fpga clean
 
 .PHONY: regmap verifier hwid release-bins demo fpga test clean
