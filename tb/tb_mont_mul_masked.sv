@@ -44,7 +44,7 @@ module tb_mont_mul_masked;
     endfunction
 
     integer fd, got, n=0, cyc, lat_v2=-1, lat_v3=-1, lat_w0=-1, dv2, dv3, dw0;
-    integer dw1, dw2;
+    integer dw1, dw2, lat_w1=-1, lat_w2=-1;
     initial begin
         fd = $fopen("test/masked_vectors.txt", "r");
         if (!fd) $fatal(1, "missing test/masked_vectors.txt");
@@ -76,12 +76,14 @@ module tb_mont_mul_masked;
                         $fatal(1, "v3 #%0d", n);
                     @(negedge clk); cyc = cyc + 1;
                 end
-                if (dv2 < 0 || dv3 < 0 || dw0 < 0) $fatal(1, "timeout #%0d", n);
-                if (lat_v2 < 0) begin lat_v2 = dv2; lat_v3 = dv3; lat_w0 = dw0; end
-                else if (dv2 != lat_v2 || dv3 != lat_v3 || dw0 != lat_w0)
+                if (dv2 < 0 || dv3 < 0 || dw0 < 0 || dw1 < 0 || dw2 < 0) $fatal(1, "timeout #%0d", n);
+                if (lat_v2 < 0) begin lat_v2 = dv2; lat_v3 = dv3; lat_w0 = dw0; lat_w1 = dw1; lat_w2 = dw2; end
+                else if (dv2 != lat_v2 || dv3 != lat_v3 || dw0 != lat_w0 || dw1 != lat_w1 || dw2 != lat_w2)
                     $fatal(1, "latency is data-dependent at #%0d", n);
                 if (want != 0 && rs != 0 && (v2_r0 == want || v2_r1 == want))
                     $fatal(1, "v2 output share equals the unmasked result #%0d", n);
+                if (want != 0 && rs != 0 && rt != 0 && (v3_r0 == want || v3_r1 == want || v3_r2 == want))
+                    $fatal(1, "3-share output share equals the unmasked result #%0d", n);
                 n = n + 1;
             end
         end

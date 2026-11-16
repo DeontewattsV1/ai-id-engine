@@ -38,7 +38,11 @@ pos_ok = pos["peak"] >= pos["crit"]
 if nul["peak"] >= nul["crit"] or not pos_ok:
     verdict, code = "FAIL(harness): null control or positive control failed", 5
 elif t2["peak"] >= t2["crit"]:
+    # Exit-code order is the spec's (2 before 3). If first order ALSO leaks,
+    # say so: more shares do not fix a first-order leak.
     verdict, code = "VERDICT 3-share (second-order leak in 2-share design)", 2
+    if t1["peak"] >= t1["crit"]:
+        verdict += "; ALSO first-order leak: masking is broken, fix that first"
 elif t1["peak"] >= t1["crit"]:
     verdict, code = "VERDICT masked CSA incomplete (first-order leak)", 3
 elif area["ratio"] > area["limit"]:
@@ -71,6 +75,8 @@ lines = [
     f"  area            {area['plain_um2']:.0f} -> {area['masked_um2']:.0f} um2 = {area['ratio']:.2f}x (limit {area['limit']:.2f}x)",
     f"  latency         {lp} -> {lm} cycles (+{lm - lp}, {lm / lp:.2f}x)",
     f"  {verdict}",
+    "  note: the null and positive controls validate the first-order path; the",
+    "  second-order statistic is validated by synthetic unit tests only.",
 ]
 open(os.path.join(a.dir, "summary.txt"), "w").write("\n".join(lines) + "\n")
 print("\n".join(lines))

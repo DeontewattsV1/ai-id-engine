@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: MIT
 """Vectors for the masked Montgomery multipliers (tb/tb_mont_mul_masked.sv).
 
-Each line holds: m n0' a b  a0 a1 a2  b0 b1 b2  rp0 rp1 rc rs rt  expected
-where a = a0+a1 (2-share) = a0+a1+a2 (3-share; a2 for 2-share is 0 and the
-3-share split is a0,a1,a2'), etc. Expected = a*b*2^-256 mod m.
+Each line holds 20 hex fields, in the order tb_mont_mul_masked.sv reads them:
+  m n0' a b  a0 a1 b0 b1  x0 x1 x2 y0 y1 y2  rp0 rp1 rc rs rt  expected
+a0+a1 = a and b0+b1 = b (mod m) are the 2-share split; x0+x1+x2 = a and
+y0+y1+y2 = b (mod m) are an independent 3-share split. expected = a*b*2^-256
+mod m.
 """
 import random, sys
 

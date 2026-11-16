@@ -7,9 +7,13 @@ import json, sys
 
 m = json.load(open(sys.argv[1]))
 caps = m["caps_pf"]
+neg = [c for c in caps if c < 0]
 nz = [c for c in caps if c > 0]
+zero = sum(1 for c in caps if c == 0)
+if neg or not nz:
+    print(f"FAIL: {len(neg)} negative caps, {len(nz)} positive caps: model unusable")
+    sys.exit(1)
 spread = max(nz) / min(nz)
-zero = len(caps) - len(nz)
 print(f"model {m['top']}: {m['nets']} nets, {m['cells']} cells, cap "
       f"{min(nz)*1e3:.2f}..{max(nz)*1e3:.1f} fF (spread {spread:.0f}x), "
       f"{zero} zero-cap nets, Vdd {m['vdd']} V")

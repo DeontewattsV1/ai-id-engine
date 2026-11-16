@@ -21,7 +21,16 @@ ap.add_argument("prefix"); ap.add_argument("poi"); ap.add_argument("out")
 ap.add_argument("--alpha", type=float, default=0.05)
 a = ap.parse_args()
 pois = np.load(a.poi)
-meta, g, tu, tb, pairs = second_order(a.prefix, pois)
+try:
+    meta, g, tu, tb, pairs = second_order(a.prefix, pois)
+except (ValueError, OSError, KeyError) as e:
+    print(f"2nd-order: unusable trace set ({e}) -> HARNESS FAILURE")
+    sys.exit(5)
+if np.isnan(tu).any() or (len(tb) and np.isnan(tb).any()):
+    print("2nd-order: NaN statistics -> HARNESS FAILURE"); sys.exit(5)
+if (np.count_nonzero(tu) == 0 and (len(tb) == 0 or np.count_nonzero(tb) == 0)):
+    print("2nd-order: every statistic is 0 (constant or stuck traces) -> HARNESS FAILURE")
+    sys.exit(5)
 tests = len(tu) + len(tb)
 crit = thresh(tests, a.alpha)
 n = min(g[0].n, g[1].n)

@@ -9,18 +9,28 @@ Exit 4 if the ratio exceeds the limit.
 """
 import argparse, json, re, sys
 
-def area(p):
-    m = re.search(r"Chip area for module '\\?(\S+?)':\s*([\d.]+)", open(p).read())
-    if not m:
+def area(p, top=None):
+    """Area of the top module: the --top name if given, else the largest
+    'Chip area for module' entry (the flattened top contains every child)."""
+    txt = open(p).read()
+    rows = [(n, float(v)) for n, v in
+            re.findall(r"Chip area for module '\\?(\S+?)':\s*([\d.]+)", txt)]
+    if not rows:
         sys.exit(f"no 'Chip area' line in {p}")
-    seq = re.search(r"sequential elements:\s*([\d.]+)", open(p).read())
-    return m.group(1), float(m.group(2)), float(seq.group(1)) if seq else None
+    if top:
+        rows = [r for r in rows if r[0] == top]
+        if not rows:
+            sys.exit(f"module {top} not found in {p}")
+    name, val = max(rows, key=lambda r: r[1])
+    seq = re.search(r"sequential elements:\s*([\d.]+)", txt)
+    return name, val, float(seq.group(1)) if seq else None
 
 ap = argparse.ArgumentParser()
 ap.add_argument("plain"); ap.add_argument("masked"); ap.add_argument("out")
 ap.add_argument("--limit", type=float, default=3.60)
+ap.add_argument("--plain-top"); ap.add_argument("--masked-top")
 a = ap.parse_args()
-(tp, ap_, sp), (tm, am, sm) = area(a.plain), area(a.masked)
+(tp, ap_, sp), (tm, am, sm) = area(a.plain, a.plain_top), area(a.masked, a.masked_top)
 r = am / ap_
 json.dump({"plain_module": tp, "masked_module": tm, "plain_um2": ap_,
            "masked_um2": am, "plain_seq_um2": sp, "masked_seq_um2": sm,
