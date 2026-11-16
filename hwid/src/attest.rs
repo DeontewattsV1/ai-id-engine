@@ -332,12 +332,37 @@ fn soft_key() -> Result<ed25519_dalek::SigningKey, String> {
         .map_err(|e| format!("{}: {e}", tmp.display()))?;
     let linked = std::fs::hard_link(&tmp, &p);
     let _ = std::fs::remove_file(&tmp);
-    match linked {
+    let published = match linked {
+        Ok(()) => Ok(()),
+        // Filesystems without hard links (e.g. FAT/exFAT): still no-clobber,
+        // via an exclusive create of the final path.
+        Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => {
+            create_new_private(&p, hex::encode(k.to_bytes()).as_bytes())
+        }
+        Err(e) => Err(e),
+    };
+    match published {
         Ok(()) => Ok(k),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => read_soft_key(&p)?
             .ok_or_else(|| format!("{}: key vanished after a creation race", p.display())),
         Err(e) => Err(format!("{}: {e}", p.display())),
     }
+}
+
+/// Exclusive (create-new) private write: fails with AlreadyExists instead of
+/// overwriting.
+fn create_new_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.mode(0o600);
+    }
+    let mut f = o.open(path)?;
+    f.write_all(data)?;
+    f.sync_all()
 }
 
 /// Produces attestation evidence. `mode`: "auto", "tpm" (require) or "software".
