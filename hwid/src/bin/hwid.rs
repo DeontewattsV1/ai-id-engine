@@ -6,7 +6,7 @@ use ai_id_host::cli::{flag, opt, read, req};
 use ai_id_host::{attest, hwid, license, now_secs};
 use std::process::ExitCode;
 
-const USAGE: &str = "hwid — privacy-preserving hardware ID tool (ai-id-engine v0.1.0)
+const USAGE: &str = "hwid — privacy-preserving hardware ID tool (ai-id-engine v0.2.0)
 
 USAGE:
   hwid show [--salt S] [--reveal] [--json]          HWID + the component list it is built from
