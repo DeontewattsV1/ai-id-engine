@@ -85,3 +85,32 @@ GoodShyt Group Inc. | AI-assisted implementation.
   ENABLE_ECDSA_LADDER_SVA; not a proof of exception-free scalar execution.
 - Legacy signoff runner uses YosysHQ OSS CAD Suite to provide sby, instead
   of a missing Ubuntu apt package. Further failures are blocking facts.
+
+
+## 2026-11-15 integration pass (branch fix/operational)
+
+- `sha256_compress` added (chained compression); `sha256_core` is now a
+  thin standard-IV wrapper and still passes its KATs.
+- `hmac_sha256` rewritten as a correct four-compression HMAC for 32-byte
+  keys and messages up to 55 bytes; new `tb_hmac_sha256` checks six RFC 2104
+  vectors. The previous version omitted padding and chaining.
+- `pcr_bank` extend is now real SHA-256(PCR || digest) (two blocks), checked
+  against OpenSSL in the end-to-end testbench.
+- `dice_cdi` message widths corrected; parent latched; zeroize clears state.
+  CDI matches OpenSSL HMAC bit-exactly. CDI is only readable over APB in
+  simulation builds (`AI_ID_DEBUG_READBACK`).
+- `apb_regfile`: one decode per transfer (reads used to double-increment),
+  per-address word index (the old index reset between every transfer, so
+  multi-word values were never assembled), ID register, CDI start, SEAL_IN
+  and QUOTE_LEN registers.
+- `seal_unit`: release now requires the PCR digest recorded at seal time;
+  previously any non-zero XOR result was reported as success.
+- `sram_puf` placeholder added (fail closed in hardware builds); `tamper_ctrl`
+  no longer pulses zeroize at reset (power-on is still recorded as tamper).
+- `quote_signer` remains fail-closed; its error flag is now visible in STATUS.
+- Rust verifier made a real crate: decoded-byte transcript, real chain
+  verification against trusted roots, bounds-checked PCR policy, 13 tests.
+- Driver core aligned with the RTL register ABI; unimplemented paths return
+  `-EOPNOTSUPP` instead of spinning forever.
+- Legacy `signoff` workflow made manual-only; new `ci.yml` runs the
+  operational gates. Unresolved blockers above are unchanged.

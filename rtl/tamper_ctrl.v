@@ -13,8 +13,9 @@ module tamper_ctrl (
 );
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            sticky <= 8'hFF;        // power-on counts as tamper
-            zeroize <= 1;
+            sticky <= 8'hFF;        // power-on is recorded as tamper
+            zeroize <= 0;           // nothing to wipe yet; reset already
+                                    // clears every secret-holding register
         end else begin
             zeroize <= 0;
             sticky <= sticky | sensors;

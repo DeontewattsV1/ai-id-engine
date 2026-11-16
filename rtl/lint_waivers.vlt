@@ -1,0 +1,8 @@
+`verilator_config
+// Waivers for blocks that are outside the id_engine_top integration and
+// are tracked in docs/REMEDIATION.md. Keep this list short and specific.
+lint_off -rule DECLFILENAME   -file "*fp_ops.v"
+lint_off -rule PINCONNECTEMPTY -file "*fuzzy_extract.v"
+lint_off -rule UNUSEDPARAM    -file "*mont_params.vh"
+// `unused_ok` is the standard idiom for intentionally ignored inputs.
+lint_off -rule UNUSEDSIGNAL   -file "*" -match "*unused_ok*"
