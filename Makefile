@@ -136,8 +136,21 @@ formal-all: formal
 
 .PHONY: kat kat-rtl formal-all
 
+# Masked Montgomery multipliers (2-share v2, 3-share, MASK_EN wrapper) checked
+# against Python over P-256 p and n, plus the TVLA statistics unit tests.
+tvla-test:
+	python3 test/test_tvla_stats.py
+	python3 test/gen_masked_vectors.py
+	iverilog -g2012 -s tb_mont_mul_masked -o /tmp/ai-id-tb-masked rtl/mont_mul.v rtl/mont_mul_masked_v2.v rtl/mont_mul_masked3.v rtl/mont_mul_wrap.v tb/tb_mont_mul_masked.sv
+	vvp -n /tmp/ai-id-tb-masked
+	$(VERILATOR) --lint-only -Wall -Irtl $(VLT) rtl/mont_mul_masked_v2.v --top-module mont_mul_masked_v2
+	$(VERILATOR) --lint-only -Wall -Irtl $(VLT) rtl/mont_mul_masked3.v --top-module mont_mul_masked3
+	for m in 0 1 2; do $(VERILATOR) --lint-only -Wall -Irtl $(VLT) rtl/mont_mul.v rtl/mont_mul_masked_v2.v rtl/mont_mul_masked3.v rtl/mont_mul_wrap.v --top-module mont_mul_wrap -GMASK_EN=$$m || exit 1; done
+
+.PHONY: tvla-test
+
 # Everything that defines "operational" for this repo (see docs/OPERATIONAL.md).
-test: lint sim rtl-unit regmap verifier hwid kat-rtl
+test: lint sim rtl-unit regmap verifier hwid kat-rtl tvla-test
 	PYTHONPATH=test python3 test/puf_characterize_test.py
 	PYTHONPATH=test python3 test/tvla_test.py
 	@echo "ALL OPERATIONAL GATES PASS"

@@ -32,6 +32,8 @@ jobs:
         run: make regmap
       - name: Known-answer tests (NIST SHA-256, RFC 4231 HMAC, RFC 6979 ECDSA P-256)
         run: make kat
+      - name: Masked Montgomery RTL (v2 2-share, 3-share, wrapper) + TVLA statistics unit tests
+        run: make tvla-test
       - name: Formal (gf_mult, OTP fuse semantics, PCR extend-only)
         run: make formal-all
 
