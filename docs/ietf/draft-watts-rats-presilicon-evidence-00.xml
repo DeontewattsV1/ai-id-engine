@@ -1,0 +1,560 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp "&#160;">
+  <!ENTITY zwsp "&#8203;">
+  <!ENTITY nbhy "&#8209;">
+  <!ENTITY wj   "&#8288;">
+]>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude"
+     version="3"
+     category="exp"
+     docName="draft-watts-rats-presilicon-evidence-00"
+     ipr="trust200902"
+     submissionType="IETF"
+     consensus="false"
+     tocInclude="true"
+     sortRefs="true"
+     symRefs="true">
+
+  <front>
+    <title abbrev="Pre-Silicon Evidence Profile">An Entity Attestation Token (EAT) Profile for Signed Pre-Silicon Hardware Security Evidence</title>
+    <seriesInfo name="Internet-Draft" value="draft-watts-rats-presilicon-evidence-00"/>
+    <author fullname="Deonte Watts" initials="D." surname="Watts">
+      <organization>ai-id-engine project</organization>
+      <address>
+        <uri>https://github.com/DeontewattsV1/ai-id-engine</uri>
+      </address>
+    </author>
+    <date year="2026" month="November" day="16"/>
+    <area>Security</area>
+    <workgroup>Network Working Group</workgroup>
+    <keyword>RATS</keyword>
+    <keyword>EAT</keyword>
+    <keyword>TVLA</keyword>
+    <keyword>side-channel</keyword>
+    <keyword>pre-silicon</keyword>
+    <keyword>provenance</keyword>
+
+    <abstract>
+      <t>Hardware security designs are increasingly assessed before
+      fabrication: by gate-level leakage simulation, fault-injection
+      simulation, formal proofs and equivalence checking. The results of
+      these assessments are routinely copied into reports, slide decks and
+      certification packages with no binding to the design that was
+      assessed, the stimulus that was used, the conditions under which the
+      numbers hold, or the platform that produced them. This document
+      defines an Entity Attestation Token (EAT) profile for carrying such
+      pre-silicon assessment results as signed Evidence. Every claim is
+      classified as identifying the assessed artifact, describing a
+      measured behavior, or describing the measurement conditions. A
+      provenance claim, which states whether the signing key is rooted in
+      hardware or software, is mandatory, and a simulated Trusted Platform
+      Module is always reported as a software root. The profile is
+      explicitly not a certification format: it records what was measured
+      and under which envelope, so that a Relying Party can decide what the
+      numbers are evidence of.</t>
+    </abstract>
+
+    <note removeInRFC="true">
+      <name>About This Document</name>
+      <t>A reference implementation (schema "aiid-evidence/v1", JSON
+      encoding, TPM 2.0 or software-key signing) is in the ai-id-engine
+      repository, files hwid/src/evidence.rs and docs/EVIDENCE.md. This
+      draft describes that implementation and proposes how it maps onto
+      EAT. It is experimental.</t>
+    </note>
+  </front>
+
+  <middle>
+    <section anchor="intro">
+      <name>Introduction</name>
+      <t>The RATS architecture <xref target="RFC9334"/> describes how an
+      Attester produces Evidence about itself, how a Verifier appraises that
+      Evidence, and how a Relying Party consumes the resulting Attestation
+      Results. The Entity Attestation Token <xref target="RFC9711"/>
+      provides a claims-based encoding for Evidence and allows profiles that
+      constrain and extend it for a particular use.</t>
+
+      <t>This document addresses a use that existing profiles do not cover:
+      Evidence about a hardware design, produced before that design exists
+      as silicon. Typical sources are:</t>
+      <ul>
+        <li>Test Vector Leakage Assessment (TVLA) <xref target="TVLA"/> on
+        simulated, gate-level power traces of a cryptographic block;</li>
+        <li>fault-injection simulation of error-detecting codes and state
+        encodings;</li>
+        <li>formal proofs of safety and non-interference properties;</li>
+        <li>equivalence checks between register-transfer-level (RTL) source
+        and a synthesized netlist;</li>
+        <li>reproducible-build digests of an FPGA bitstream used as a
+        prototype.</li>
+      </ul>
+
+      <t>Such results are only meaningful relative to the exact netlist,
+      cell library, power model, stimulus set and statistical parameters
+      that produced them. A first-order |t| value of 3.15 says nothing on
+      its own. Together with "4000 traces per group, 4000 samples, alpha
+      0.05, Bonferroni threshold 4.37, sky130 typical corner, zero-delay
+      cell models, noiseless", it becomes a reproducible statement with a
+      known minimum detectable effect. This profile binds the numbers to
+      those conditions under a signature, and records the trust root of
+      that signature honestly.</t>
+
+      <t>This profile does not define how to perform any of these
+      assessments, and it does not turn their results into a certification.
+      A report that conforms to this profile can be evidence for a
+      certification process; it is never itself a certificate.</t>
+
+      <section anchor="terminology">
+        <name>Requirements Language</name>
+        <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+        "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>",
+        "<bcp14>SHALL NOT</bcp14>", "<bcp14>SHOULD</bcp14>",
+        "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>",
+        "<bcp14>NOT RECOMMENDED</bcp14>", "<bcp14>MAY</bcp14>", and
+        "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+        described in BCP&nbsp;14 <xref target="RFC2119"/>
+        <xref target="RFC8174"/> when, and only when, they appear in all
+        capitals, as shown here.</t>
+      </section>
+
+      <section anchor="defs">
+        <name>Terms</name>
+        <dl newline="false">
+          <dt>Assessed artifact:</dt>
+          <dd>The design under assessment: RTL source, synthesized
+          netlist, derived power model, cell models and cell library.</dd>
+          <dt>Assessment host:</dt>
+          <dd>The machine that ran the assessment and signs the report. In
+          RATS terms it is the Attester. Its Target Environment is the
+          assessment run, not the assessed artifact.</dd>
+          <dt>Measurement envelope:</dt>
+          <dd>The set of modelling assumptions under which the behavior
+          claims hold, together with an explicit list of effects that were
+          not modelled.</dd>
+          <dt>Provenance root:</dt>
+          <dd>"hardware" if the report signature is produced by a key held
+          in a physical TPM; "software" otherwise.</dd>
+        </dl>
+      </section>
+    </section>
+
+    <section anchor="model">
+      <name>Evidence Model</name>
+      <t>A report is a body of named fields plus an attestation over the
+      body. Each field carries exactly one class:</t>
+      <dl newline="true">
+        <dt>identity</dt>
+        <dd>The field identifies what was assessed or who signed: artifact
+        digests, the assessment host's identifier, and provenance.</dd>
+        <dt>behavior</dt>
+        <dd>The field is a measured outcome: leakage statistics, a gate
+        verdict, area, latency, fault-detection counts, proof status.</dd>
+        <dt>neither</dt>
+        <dd>The field describes the conditions of the measurement:
+        statistical parameters, the stimulus set, the measurement envelope,
+        tool versions.</dd>
+      </dl>
+      <t>The classification is part of the signed body. A Verifier
+      <bcp14>MUST</bcp14> reject a report in which:</t>
+      <ul>
+        <li>any field lacks a class, or has a class other than these three;</li>
+        <li>a required field (<xref target="required"/>) is missing or
+        carries the wrong class;</li>
+        <li>a field name appears more than once.</li>
+      </ul>
+      <t>The classes let a Relying Party apply policy mechanically. For
+      example, it can accept behavior claims only when the identity claims
+      match a netlist digest it has independently obtained, and only when
+      the neither claims show a trace count at or above its own minimum.</t>
+
+      <section anchor="required">
+        <name>Required Fields</name>
+        <table anchor="tab-required">
+          <name>Fields every conforming report carries</name>
+          <thead>
+            <tr><th>Name</th><th>Class</th><th>Content</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>provenance</td><td>identity</td>
+                <td>Signing root; see <xref target="provenance"/>.</td></tr>
+            <tr><td>hwid</td><td>identity</td>
+                <td>Salted identifier of the assessment host.</td></tr>
+            <tr><td>model_digest</td><td>identity</td>
+                <td>Map from artifact path to SHA-256 <xref target="FIPS180-4"/>
+                digest. It covers the RTL, netlists, power-model netlists and
+                capacitance files, cell models and the cell library.</td></tr>
+            <tr><td>stimulus_set</td><td>neither</td>
+                <td>Digests of the stimulus generator, harness and
+                configuration, plus seeds, modes and trace counts per
+                group.</td></tr>
+            <tr><td>tvla_parameters</td><td>neither</td>
+                <td>Profile name, assessed design, traces per group, samples
+                per trace (M), alpha, the first- and second-order critical
+                values, and the number of second-order tests.</td></tr>
+            <tr><td>measurement_envelope</td><td>neither</td>
+                <td>See <xref target="envelope"/>.</td></tr>
+            <tr><td>tvla_result</td><td>behavior</td>
+                <td>Null-control and positive-control peaks, first- and
+                second-order peaks, minimum detectable effect, verdict and
+                gate exit code.</td></tr>
+          </tbody>
+        </table>
+        <t>Additional fields <bcp14>MAY</bcp14> be present (for example
+        area, latency, fault-injection counts or equivalence status). Each
+        additional field <bcp14>MUST</bcp14> carry a class.</t>
+      </section>
+
+      <section anchor="controls">
+        <name>Controls Are Part of the Result</name>
+        <t>A leakage statistic without controls cannot be interpreted. The
+        null control (random versus random inputs on the assessed design)
+        bounds the false-positive behavior of the harness. The positive
+        control (fixed versus random on an unprotected reference) shows
+        that the harness can see a leak. A conforming tvla_result
+        <bcp14>MUST</bcp14> include both control results. A Verifier
+        <bcp14>MUST NOT</bcp14> treat a report as evidence of absence of
+        leakage if the null control exceeded its threshold or the positive
+        control did not.</t>
+      </section>
+
+      <section anchor="envelope">
+        <name>Measurement Envelope</name>
+        <t>The measurement_envelope states what the behavior claims are
+        evidence of. It <bcp14>MUST</bcp14> contain:</t>
+        <ul>
+          <li>a kind string that says whether the traces were simulated or
+          measured; for simulated traces it <bcp14>MUST</bcp14> contain the
+          words "not silicon";</li>
+          <li>the cell library and process corner;</li>
+          <li>the power model and the wire-load model;</li>
+          <li>the measurement chain parameters (for example low-pass time
+          constant and additive noise);</li>
+          <li>samples per trace;</li>
+          <li>a list of effects not modelled (for example glitches,
+          coupling, IR drop, electromagnetic emanation, process variation,
+          parasitics after placement and routing);</li>
+          <li>tool names and versions.</li>
+        </ul>
+        <t>The list of effects not modelled is <bcp14>REQUIRED</bcp14>
+        because it is the part of a pre-silicon report most often lost when
+        results are quoted elsewhere.</t>
+      </section>
+    </section>
+
+    <section anchor="provenance">
+      <name>Provenance</name>
+      <t>The provenance field records the root of the key that signs the
+      report. Its value contains:</t>
+      <ul>
+        <li>attestation_kind: "tpm2-quote" or "software-fallback";</li>
+        <li>source: how the platform information was obtained, for example
+        TPM2_GetCapability for TPM_PT_MANUFACTURER and TPM_PT_VENDOR_STRING_1
+        <xref target="TPM2"/>, or "none" when no TPM was used;</li>
+        <li>tpm_manufacturer, and a simulated_tpm flag;</li>
+        <li>root: "hardware" or "software".</li>
+      </ul>
+      <t>The following rules apply:</t>
+      <ul>
+        <li>root <bcp14>MUST</bcp14> be "hardware" only when the signature
+        is a TPM 2.0 quote from a physical TPM.</li>
+        <li>A software TPM (for example swtpm or the Microsoft simulator)
+        <bcp14>MUST</bcp14> be reported as root "software", even though it
+        speaks the TPM 2.0 protocol.</li>
+        <li>A plain software key <bcp14>MUST</bcp14> be reported as root
+        "software".</li>
+        <li>The Attester obtains the provenance before signing and places it
+        in the body, so the signature covers it.</li>
+        <li>A Verifier <bcp14>MUST</bcp14> recompute the expected provenance
+        from the attestation it verified, and <bcp14>MUST</bcp14> reject the
+        report if the two differ. In particular it rejects a body that
+        claims "hardware" over a simulated TPM quote.</li>
+      </ul>
+    </section>
+
+    <section anchor="signing">
+      <name>Signing and Binding</name>
+      <t>The body is serialized canonically: compact JSON
+      <xref target="RFC8259"/> with fields in the order written. The report
+      nonce is:</t>
+      <artwork><![CDATA[
+  nonce = SHA-256( "AIID-EVIDENCE-V1" || canonical(body) )
+]]></artwork>
+      <t>The nonce is used as the freshness value of the platform
+      attestation.</t>
+      <ul>
+        <li>For a TPM, the quote's qualifying data is derived from the nonce
+        and the host identifier, and the quote signs it with an Attestation
+        Key whose binding to the Endorsement Key was checked by credential
+        activation.</li>
+        <li>For a software key, the key signs the nonce together with the
+        host identifier and a timestamp.</li>
+      </ul>
+      <t>The report is the triple (body, body hash, attestation). A Verifier
+      <bcp14>MUST</bcp14>:</t>
+      <ol>
+        <li>validate the body against <xref target="model"/>;</li>
+        <li>recompute the canonical body hash and compare it;</li>
+        <li>verify the attestation over the recomputed nonce;</li>
+        <li>check provenance agreement as described in
+        <xref target="provenance"/>.</li>
+      </ol>
+    </section>
+
+    <section anchor="eat">
+      <name>Mapping to EAT</name>
+      <t>This section describes how the model maps onto an EAT
+      <xref target="RFC9711"/> profile, so that reports can travel in RATS
+      conceptual messages.</t>
+      <ul>
+        <li>The eat_profile claim <bcp14>MUST</bcp14> be set to the
+        profile identifier in <xref target="iana-profile"/>.</li>
+        <li>The eat_nonce claim carries the nonce defined in
+        <xref target="signing"/>.</li>
+        <li>Each body field is carried as a claim in a
+        presilicon-evidence claims-set. The claim value is a map with keys
+        "class" and "value".</li>
+        <li>The provenance field maps onto the existing hardware and
+        software model claims where those apply. It <bcp14>MUST</bcp14>
+        also be carried verbatim, because EAT has no claim for "simulated
+        TPM".</li>
+        <li>When the attestation is a TPM quote, the token is carried
+        together with the quote in the evidence bundle, as for other
+        TPM-based Evidence. A software-root report <bcp14>SHOULD</bcp14> be
+        signed with COSE or JOSE using the software key, and still declares
+        root "software".</li>
+      </ul>
+    </section>
+
+    <section anchor="appraisal">
+      <name>Appraisal Guidance</name>
+      <t>A Verifier producing Attestation Results from such Evidence
+      <bcp14>SHOULD</bcp14>:</t>
+      <ul>
+        <li>report the provenance root unchanged;</li>
+        <li>report the trace count and the minimum detectable effect beside
+        any leakage verdict;</li>
+        <li>never translate a passing verdict at a given trace count into a
+        statement about leakage at higher trace counts or on silicon.</li>
+      </ul>
+      <t>A Relying Party <bcp14>SHOULD</bcp14> compare model_digest
+      against artifacts it obtained independently, for example from a
+      reproducible build whose digests are themselves published.</t>
+    </section>
+
+    <section anchor="example">
+      <name>Example</name>
+      <t>The following abbreviated body comes from the reference
+      implementation. It describes a 2-share masked Montgomery multiplier
+      at 4000 traces per group, which fails second-order TVLA as expected.
+      Digests are truncated.</t>
+      <sourcecode type="json"><![CDATA[
+{"schema":"aiid-evidence/v1","created":"2026-11-16T16:10:00Z",
+ "fields":[
+  {"name":"provenance","class":"identity","value":{
+     "attestation_kind":"software-fallback",
+     "source":"none: no TPM, software-fallback key file",
+     "tpm_manufacturer":"","simulated_tpm":false,"root":"software"}},
+  {"name":"hwid","class":"identity","value":"9f2c...e1"},
+  {"name":"model_digest","class":"identity","value":{
+     "build/sky130_masked_v2.v":"4b1e...07",
+     "build/tvla_masked_v2.caps":"c3a9...5d"}},
+  {"name":"stimulus_set","class":"neither","value":{
+     "files":{"config/tvla.toml":"77d0...2a"},
+     "description":{"fixed_vs_random":{"seed":17,
+                    "traces_per_group":4000}}}},
+  {"name":"tvla_parameters","class":"neither","value":{
+     "profile":"ci","traces_per_group":4000,"samples":4000,
+     "alpha":0.05,"crit_first_order":4.37,"crit_second_order":4.46}},
+  {"name":"measurement_envelope","class":"neither","value":{
+     "kind":"simulated gate-level power traces; not silicon",
+     "library":"sky130_fd_sc_hd__tt_025C_1v80",
+     "not_modelled":["glitches","coupling and IR drop","EM"]}},
+  {"name":"tvla_result","class":"behavior","value":{
+     "null_control":{"peak":3.24,"crit":4.37,"passed":true},
+     "positive_control_plain":{"peak":82.96,"detected":true},
+     "first_order_peak":3.15,"second_order_peak":26.50,
+     "mde_sigma":0.0977,"exit":2,
+     "verdict":"second-order leak in 2-share design"}}]}
+]]></sourcecode>
+    </section>
+
+    <section anchor="security">
+      <name>Security Considerations</name>
+      <t>This profile improves the binding and honesty of pre-silicon
+      results. It does not make them stronger than the assessment that
+      produced them.</t>
+      <dl newline="true">
+        <dt>Simulation is not silicon.</dt>
+        <dd>Zero-delay gate-level simulation does not model glitches,
+        coupling, IR drop or electromagnetic emanation, and second-order
+        statistics may be validated only synthetically. A Relying Party
+        <bcp14>MUST NOT</bcp14> treat a conforming report as a side-channel
+        certification.</dd>
+        <dt>Trace count bounds what a pass means.</dt>
+        <dd>A pass at N traces per group shows only that no leak larger than
+        the stated minimum detectable effect was found at N.</dd>
+        <dt>Provenance is host-reported.</dt>
+        <dd>The platform information comes from the host's TPM software
+        stack. It is covered by the Attestation Key signature, but a
+        compromised host can misreport the TPM vendor unless the Verifier
+        also validates the Endorsement Key certificate chain, which the
+        reference implementation does not yet do.</dd>
+        <dt>A software root is a file key.</dt>
+        <dd>It proves possession of a key file, not the integrity of the
+        host. Reports from continuous-integration systems will typically
+        have a software root.</dd>
+        <dt>Digests bind; they do not judge.</dt>
+        <dd>model_digest ties the results to particular files, but the
+        Relying Party must still establish that those files are the design
+        it cares about.</dd>
+        <dt>Replay.</dt>
+        <dd>The nonce is derived from the body, so the same body always
+        yields the same nonce. Verifiers that need freshness
+        <bcp14>SHOULD</bcp14> also check the attestation timestamp or
+        request a report bound to their own challenge.</dd>
+      </dl>
+    </section>
+
+    <section anchor="privacy">
+      <name>Privacy Considerations</name>
+      <t>The hwid field is a salted identifier of the assessment host.
+      Different salts yield unlinkable identifiers. Implementations
+      <bcp14>SHOULD</bcp14> use a per-deployment salt and
+      <bcp14>MUST NOT</bcp14> include raw hardware identifiers. Artifact
+      paths in model_digest can reveal project structure, so publishers
+      <bcp14>MAY</bcp14> replace them with opaque labels if the digests
+      remain stable.</t>
+    </section>
+
+    <section anchor="iana">
+      <name>IANA Considerations</name>
+      <section anchor="iana-profile">
+        <name>EAT Profile Identifier</name>
+        <t>This document uses the profile identifier
+        "tag:ai-id-engine,2026:presilicon-evidence/v1". No IANA action is
+        requested for the identifier itself.</t>
+      </section>
+      <section anchor="iana-claims">
+        <name>Claims</name>
+        <t>If this document progresses, it would request registration of a
+        "presilicon-evidence" claim in the CBOR Web Token (CWT) Claims and
+        JSON Web Token Claims registries, with the semantics of
+        <xref target="eat"/>. Until then, implementations use a private
+        claim key.</t>
+      </section>
+    </section>
+  </middle>
+
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <reference anchor="RFC2119" target="https://www.rfc-editor.org/info/rfc2119">
+          <front>
+            <title>Key words for use in RFCs to Indicate Requirement Levels</title>
+            <author initials="S." surname="Bradner" fullname="S. Bradner"/>
+            <date year="1997" month="March"/>
+          </front>
+          <seriesInfo name="BCP" value="14"/>
+          <seriesInfo name="RFC" value="2119"/>
+          <seriesInfo name="DOI" value="10.17487/RFC2119"/>
+        </reference>
+        <reference anchor="RFC8174" target="https://www.rfc-editor.org/info/rfc8174">
+          <front>
+            <title>Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words</title>
+            <author initials="B." surname="Leiba" fullname="B. Leiba"/>
+            <date year="2017" month="May"/>
+          </front>
+          <seriesInfo name="BCP" value="14"/>
+          <seriesInfo name="RFC" value="8174"/>
+          <seriesInfo name="DOI" value="10.17487/RFC8174"/>
+        </reference>
+        <reference anchor="RFC9334" target="https://www.rfc-editor.org/info/rfc9334">
+          <front>
+            <title>Remote ATtestation procedureS (RATS) Architecture</title>
+            <author initials="H." surname="Birkholz" fullname="H. Birkholz"/>
+            <author initials="D." surname="Thaler" fullname="D. Thaler"/>
+            <author initials="M." surname="Richardson" fullname="M. Richardson"/>
+            <author initials="N." surname="Smith" fullname="N. Smith"/>
+            <author initials="W." surname="Pan" fullname="W. Pan"/>
+            <date year="2023" month="January"/>
+          </front>
+          <seriesInfo name="RFC" value="9334"/>
+          <seriesInfo name="DOI" value="10.17487/RFC9334"/>
+        </reference>
+        <reference anchor="RFC9711" target="https://www.rfc-editor.org/info/rfc9711">
+          <front>
+            <title>The Entity Attestation Token (EAT)</title>
+            <author initials="L." surname="Lundblade" fullname="L. Lundblade"/>
+            <author initials="G." surname="Mandyam" fullname="G. Mandyam"/>
+            <author initials="J." surname="O'Donoghue" fullname="J. O'Donoghue"/>
+            <author initials="C." surname="Wallace" fullname="C. Wallace"/>
+            <date year="2025" month="April"/>
+          </front>
+          <seriesInfo name="RFC" value="9711"/>
+          <seriesInfo name="DOI" value="10.17487/RFC9711"/>
+        </reference>
+        <reference anchor="RFC8259" target="https://www.rfc-editor.org/info/rfc8259">
+          <front>
+            <title>The JavaScript Object Notation (JSON) Data Interchange Format</title>
+            <author initials="T." surname="Bray" fullname="T. Bray" role="editor"/>
+            <date year="2017" month="December"/>
+          </front>
+          <seriesInfo name="STD" value="90"/>
+          <seriesInfo name="RFC" value="8259"/>
+          <seriesInfo name="DOI" value="10.17487/RFC8259"/>
+        </reference>
+        <reference anchor="FIPS180-4" target="https://doi.org/10.6028/NIST.FIPS.180-4">
+          <front>
+            <title>Secure Hash Standard (SHS)</title>
+            <author><organization>National Institute of Standards and Technology</organization></author>
+            <date year="2015" month="August"/>
+          </front>
+          <seriesInfo name="FIPS PUB" value="180-4"/>
+        </reference>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <reference anchor="TPM2" target="https://trustedcomputinggroup.org/resource/tpm-library-specification/">
+          <front>
+            <title>Trusted Platform Module Library Specification, Family "2.0"</title>
+            <author><organization>Trusted Computing Group</organization></author>
+            <date year="2019"/>
+          </front>
+        </reference>
+        <reference anchor="TVLA">
+          <front>
+            <title>A testing methodology for side-channel resistance validation</title>
+            <author initials="G." surname="Goodwill" fullname="G. Goodwill"/>
+            <author initials="B." surname="Jun" fullname="B. Jun"/>
+            <author initials="J." surname="Jaffe" fullname="J. Jaffe"/>
+            <author initials="P." surname="Rohatgi" fullname="P. Rohatgi"/>
+            <date year="2011" month="September"/>
+          </front>
+          <refcontent>NIST Non-Invasive Attack Testing Workshop</refcontent>
+        </reference>
+      </references>
+    </references>
+
+    <section anchor="impl" numbered="false">
+      <name>Implementation Status</name>
+      <t>[RFC Editor: remove before publication.]</t>
+      <t>The ai-id-engine project implements this profile in JSON form:</t>
+      <ul>
+        <li>"aiid evidence create" and "aiid evidence verify" produce and
+        check reports;</li>
+        <li>TPM 2.0 signing goes through tpm2-tools, with a software-key
+        fallback;</li>
+        <li>every TVLA run in continuous integration produces a report with
+        a software root;</li>
+        <li>unit tests cover tampering with behavior claims, upgrading the
+        provenance after signing, missing provenance, wrong classes and
+        duplicate fields.</li>
+      </ul>
+      <t>The EAT and COSE encoding of <xref target="eat"/> is not yet
+      implemented.</t>
+    </section>
+  </back>
+</rfc>
