@@ -2,6 +2,7 @@
 # exists), and any fault input sets both complementary latches.
 [options]
 mode prove
+timeout 1200
 depth 2
 
 [engines]

@@ -136,12 +136,16 @@ kat-rtl:
 formal-all: formal
 	sby -f formal/otp_fuses.sby
 	sby -f formal/pcr_bank.sby
-	sby -f formal/fault_alarm.sby
-	sby -f formal/key_store_fd.sby
-	sby -f formal/key_store_nonint.sby
-	sby -f formal/pcr_bank_fd.sby
 
-.PHONY: kat kat-rtl formal-all
+# Fault-detection proofs (docs/FAULT-DETECTION.md). Each .sby has a 20 min
+# timeout so a stalled solver fails with the proof's name and time.
+formal-fd:
+	@for p in fault_alarm key_store_fd key_store_nonint pcr_bank_fd; do \
+	  t0=$$(date +%s); sby -f formal/$$p.sby > /dev/null; rc=$$?; \
+	  echo "formal $$p: $$(grep -h 'DONE' formal/$$p/logfile.txt) in $$(( $$(date +%s) - t0 ))s"; \
+	  if [ $$rc -ne 0 ]; then tail -20 formal/$$p/logfile.txt; exit 1; fi; done
+
+.PHONY: kat kat-rtl formal-all formal-fd
 
 # ---------------------------------------------------------------------------
 # TVLA: gate-level, sky130-mapped leakage evidence for the masked Montgomery

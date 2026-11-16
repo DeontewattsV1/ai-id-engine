@@ -86,7 +86,7 @@ same extend-only property as before.
 Testbench sensitivity: disabling each detector (residue check, FSM legality,
 alarm, DED, SEC correction) makes the corresponding testbench fail.
 
-`make formal-all` (SymbiYosys, fault-free model):
+`make formal-fd` (SymbiYosys, fault-free model; each proof has a 20 min timeout):
 
 - `formal/fault_alarm.sby`: once set, zeroize never clears; any fault sets both latches.
 - `formal/key_store_fd.sby`: the FSM stays legal, the stored words are always

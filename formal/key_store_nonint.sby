@@ -1,6 +1,7 @@
 # Two-copy non-interference: no key bit reaches status/zeroize/key_valid.
 [options]
 mode prove
+timeout 1200
 depth 6
 
 [engines]

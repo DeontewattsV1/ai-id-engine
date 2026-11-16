@@ -6,6 +6,7 @@
 # The SHA-256 core is cut out, as in pcr_bank.sby.
 [options]
 mode prove
+timeout 1200
 depth 4
 
 [engines]
