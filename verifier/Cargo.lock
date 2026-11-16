@@ -7,6 +7,7 @@ name = "ai-id-verifier"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "hmac",
  "p256",
  "rand_core",
  "serde",
