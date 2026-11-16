@@ -60,8 +60,10 @@ module mont_mul_masked3 (
     wire [255:0] add0 = madd(s0, pg0, nn);
     wire [255:0] add1 = madd(s1, pg1, nn);
     wire [255:0] add2 = madd(s2, pg2, nn);
-    // s2 = m - r_s - r_t, built in two steps across IDLE/INIT so r_s and r_t
-    // never meet in one unmasked combinational sum.
+    // s2 = m - r_s - r_t, built in two steps across IDLE/INIT: IDLE registers
+    // m - r_s, INIT adds m - r_t to that register. The two masks therefore do
+    // meet in the INIT adder; what the split avoids is ever computing
+    // r_s + r_t from the raw ports in the same cycle they are sampled.
     wire [255:0] s2_step1 = mneg(r_s, modulus);
     wire [255:0] s2_step2 = madd(s2, mneg(r_t, nn), nn);
     wire unused_ok = &{1'b0, n0prime, reduced[257:256]};

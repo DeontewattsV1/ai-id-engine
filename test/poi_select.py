@@ -15,10 +15,15 @@ from tvla_stats import select_pois
 ap = argparse.ArgumentParser()
 ap.add_argument("prefix"); ap.add_argument("out")
 ap.add_argument("--count", type=int, default=64)
-ap.add_argument("--gap", type=int, default=0, help="default: ~2 clock cycles")
+ap.add_argument("--gap", type=int, default=None, help="default: ~2 clock cycles")
 a = ap.parse_args()
 meta = json.load(open(a.prefix + ".meta.json"))
-gap = a.gap or max(1, int(round(2 * meta["samples"] / meta["cycles"])))
+if meta.get("mode") != "null":
+    print("poi_select: POIs must come from a --mode null trace set (independent of the tested labels)")
+    sys.exit(5)
+if a.gap is not None and a.gap < 0:
+    sys.exit("poi_select: --gap must be >= 0")
+gap = a.gap if a.gap is not None else max(1, int(round(2 * meta["samples"] / meta["cycles"])))
 pois = select_pois(a.prefix, a.count, gap)
 np.save(a.out, pois)
 print(f"{len(pois)} POIs from null-control variance (gap {gap} samples)")

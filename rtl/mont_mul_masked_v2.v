@@ -9,7 +9,11 @@
 // time-shared over the four share products a_i*b_j. Product (i,j) accumulates
 // into output share i, and both accumulators start with a fresh mask:
 //   s0 = r_s,  s1 = m - r_s.
-// Four independent random ports, each consumed once per operation:
+// Four independent random ports. r_s is sampled once, at start. r_p0, r_p1
+// and r_c are sampled at every PRE state, i.e. four times per operation (once
+// before each share product). The TVLA harness holds them constant for a
+// whole operation, so the same precharge value separates all four product
+// loads; a caller that can afford it should supply fresh values per PRE.
 //   r_p0 - precharge for the A operand register between share loads
 //   r_p1 - precharge for the B operand register between share loads
 //   r_c  - precharge for the product register between products

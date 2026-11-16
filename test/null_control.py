@@ -16,9 +16,14 @@ ap = argparse.ArgumentParser()
 ap.add_argument("prefix"); ap.add_argument("out")
 ap.add_argument("--alpha", type=float, default=0.05)
 a = ap.parse_args()
-meta, g, t = first_order(a.prefix)
+try:
+    meta, g, t = first_order(a.prefix)
+except (ValueError, OSError, KeyError) as e:
+    print(f"null control: unusable trace set ({e}) -> HARNESS FAILURE")
+    sys.exit(5)
 if meta.get("mode") != "null":
-    sys.exit("null_control: trace set was not generated with --mode null")
+    print("null_control: trace set was not generated with --mode null -> HARNESS FAILURE")
+    sys.exit(5)
 crit = thresh(len(t), a.alpha)
 n = min(g[0].n, g[1].n)
 res = summary(t, crit=crit, n=n, samples=len(t), alpha=a.alpha, mde=mde(crit, n),
