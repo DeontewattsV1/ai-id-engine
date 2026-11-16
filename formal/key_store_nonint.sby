@@ -1,0 +1,21 @@
+# Two-copy non-interference: no key bit reaches status/zeroize/key_valid.
+[options]
+mode prove
+depth 6
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -I. secded39_enc.v secded39_dec.v fault_alarm.v key_store_fd.v
+read -formal key_store_nonint.sv
+prep -top key_store_nonint
+async2sync
+
+[files]
+rtl/secded39_fn.vh
+rtl/secded39_enc.v
+rtl/secded39_dec.v
+rtl/fault_alarm.v
+rtl/key_store_fd.v
+formal/key_store_nonint.sv

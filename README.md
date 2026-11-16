@@ -38,6 +38,18 @@ offline-activation / TPM attestation tool. Not production-certified — read
 * **`ai-id-verifier`** (`verifier/`): appraises software and hardware (AIQ2)
   quotes.
 
+## v0.2.0: masked multiplier + simulated TVLA
+
+`make tvla` maps the plain and masked Montgomery multipliers onto sky130
+(Yosys `abc -liberty`), simulates the gate-level netlists in Verilator with
+a capacitance-weighted power model, and gates them with Welch TVLA. It
+runs a null control first, then a positive control, then first-order and
+second-order tests, with computed thresholds (4.37 at M=4000). Results,
+including the honest ones, are in [docs/TVLA.md](docs/TVLA.md). The traces
+are simulated, not silicon. `make kat` runs the NIST/RFC known-answer
+tests, and `make formal-all` runs the SymbiYosys proofs. The 84-file
+bundle review is in [docs/BUNDLE-REVIEW.md](docs/BUNDLE-REVIEW.md).
+
 ## Quick start
 
 ### Use the release binaries (Linux x86_64, static)
