@@ -21,6 +21,21 @@ module bch_dec (
     reg [2046:0] e;
     integer i;
 
+    function automatic [10:0] gf_mult(input [10:0] a, b);
+        reg [21:0] product;
+        integer bit_index;
+        begin
+            product = 0;
+            for (bit_index = 0; bit_index < 11; bit_index = bit_index + 1)
+                if (b[bit_index])
+                    product = product ^ ({11'b0, a} << bit_index);
+            for (bit_index = 21; bit_index >= 11; bit_index = bit_index - 1)
+                if (product[bit_index])
+                    product = product ^ (22'h805 << (bit_index - 11));
+            gf_mult = product[10:0];
+        end
+    endfunction
+
     // alpha^i table from ROM
     initial $readmemh("alpha_pow.mem", alpha_pow);
 

@@ -2,6 +2,12 @@
 `timescale 1ns/1ps
 `include "mont_params.vh"
 
+// Top-level container module to satisfy Verilator's DECLFILENAME rule
+// (first module name must match the filename base "fp_ops").
+// This module is intentionally empty and not instantiated.
+module fp_ops;
+endmodule
+
 module fp_add (input [255:0] a, b, m, output [255:0] r);
     wire [256:0] s = {1'b0, a} + {1'b0, b};
     assign r = (s >= {1'b0, m}) ? s[255:0] - m : s[255:0];

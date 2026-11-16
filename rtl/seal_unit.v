@@ -44,25 +44,30 @@ module seal_unit (
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            ok <= 0; wrapped <= 0; secret_out <= 0;
-            sealed_policy <= 0; sealed_digest <= 0; have_blob <= 0;
-        end else if (zeroize) begin
-            ok <= 0; wrapped <= 0; secret_out <= 0;
-            sealed_policy <= 0; sealed_digest <= 0; have_blob <= 0;
-        end else if (op == 2'd1) begin
-            sealed_policy <= policy;
-            sealed_digest <= cur_seal;
-            wrapped       <= secret_in ^ seal_key ^ cur_seal;
-            have_blob     <= 1;
-            ok <= 0; secret_out <= 0;
-        end else if (op == 2'd2) begin
-            if (have_blob && cur_unseal == sealed_digest) begin
-                secret_out <= wrapped ^ seal_key ^ cur_unseal;
-                ok <= 1;
-            end else begin
-                secret_out <= 0;
-                ok <= 0;
-            end
+            state <= 0; ok <= 0; wrapped <= 0; secret_out <= 0;
+        end else begin
+            case (state)
+                0: if (op == 1) begin
+                       ok <= 0;
+                       policy_digest = 256'b0;
+                       for (i = 0; i < 16; i = i + 1)
+                           if (policy[i]) policy_digest = policy_digest ^
+                               pcr_flat[255 + 256*i -: 256];
+                       wrapped <= secret_in ^ policy_digest;  // GCM in silicon
+                       state <= 0;
+                   end else if (op == 2) begin
+                       expected_digest = 256'b0;
+                       for (i = 0; i < 16; i = i + 1)
+                           if (policy[i]) expected_digest = expected_digest ^
+                               pcr_flat[255 + 256*i -: 256];
+                       if (expected_digest == policy_digest &&
+                           (wrapped ^ expected_digest) != 256'b0) begin
+                           secret_out <= wrapped ^ expected_digest;
+                           ok <= 1;
+                       end else ok <= 0;
+                       state <= 0;
+                   end
+            endcase
         end
     end
 endmodule

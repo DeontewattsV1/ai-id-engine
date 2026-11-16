@@ -1,9 +1,4 @@
-obj_dir/
-verifier/target/
-verifier/demo-out/
-demo-out/
-*.vcd
+/obj_dir/
+/coverage.dat
+/formal/gf_mult/
 __pycache__/
-.env
-test/bch_vectors.txt
-test/mont_vectors.txt

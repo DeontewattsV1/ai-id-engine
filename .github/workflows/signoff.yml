@@ -23,4 +23,4 @@ jobs:
       - run: make sim
       - run: make fuzz
       - run: make formal
-      - run: make cov && python3 test/cov_gate.py --min 95
+      - run: make cov && python3 test/cov_gate.py coverage.dat

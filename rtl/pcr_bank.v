@@ -10,7 +10,7 @@ module pcr_bank (
     input  wire [3:0]   sel,
     input  wire [255:0] digest_in,
     output reg  [255:0] digest_out,
-    output reg  [4095:0] flat,
+    output wire [4095:0] flat,
     output wire         busy
 );
     localparam [255:0] IV =
@@ -30,10 +30,10 @@ module pcr_bank (
     reg [3:0]   sel_q;
     integer i;
 
-    assign busy = (st != 0);
+    assign busy = st != 0;
 
-    sha256_compress u_h (.clk(clk), .rst_n(rst_n), .start(h_start), .h_in(h_in),
-                         .block(blk), .busy(h_busy), .done(h_done), .digest(h_dig));
+    sha256_core u_h (.clk(clk), .rst_n(rst_n), .start(h_start),
+                     .block(blk), .busy(h_busy), .done(h_done), .digest(h_dig));
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
