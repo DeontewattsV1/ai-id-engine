@@ -98,3 +98,23 @@ CAVP, Common Criteria, or an external security review.
   software attestation key) at run time under `demo-out/`. The fixture in
   `verifier/tests/fixtures/` contains only public keys and signatures; the
   matching private keys were thrown away.
+
+## v0.2.0 additions (TVLA, masked multiplier, bundle integration)
+
+* **TVLA traces are simulated** (zero-delay gate-level sky130 tt netlist,
+  pre-layout capacitance model). They are not silicon, have no glitches
+  and no noise. A TVLA "pass" is evidence at that trace count, not
+  certification. See docs/TVLA.md and docs/certification-scope.md.
+* **The 2-share masked multiplier (v2) has a second-order leak** at
+  4000 traces/group (see docs/TVLA.md). That is expected for 2 shares, and
+  the gate says to use 3 shares. The 3-share design costs 3.16x area and
+  9x latency.
+* **The masked multipliers are not connected to any signing path.** Signing
+  is still done by the external secure element. They are evaluated
+  standalone over the P-256 group order.
+* **ADR-0003 tickets**: the verifier-side check is implemented and tested.
+  The device-side ticket key derivation and generation are not.
+* The PCR-bank extend-only proof cuts out the SHA-256 core. The proof is
+  about the write path; SHA-256 correctness comes from the NIST KATs.
+* HMAC RFC 4231 TC6/TC7 (131-byte keys) are outside the 256-bit key port.
+  Longer keys must be pre-hashed by the caller.

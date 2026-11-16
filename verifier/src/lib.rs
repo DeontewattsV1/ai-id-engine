@@ -29,6 +29,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 pub mod hw;
+pub mod ticket;
 pub use hw::{hw_body, issue_cert_for_pubkey, sign_hw_quote, verify_hw, HwPolicy, HwQuote};
 
 /// Domain-separation tag for certificate signatures.

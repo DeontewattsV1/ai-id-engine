@@ -53,3 +53,13 @@ it and to the test that checks it.
 | `aiid cert create/verify/render` | `hwid/src/cert.rs`, `hwid/src/render.rs` | AI Birth Certificate: in-toto Statement v1 in a DSSE envelope (ECDSA P-256), weights streamed through SHA-256, architecture/checkpoint/instance/environment digest/HWID/attestation, optional embedded engine quote; verify checks signature, chain, freshness, subjects, re-hash, environment digest, attestation binding, engine quote + PCR2; SVG rendering. |
 | `aiid ca` | `hwid/src/ca.rs` | TEST-ONLY demo vendor CA generated at run time. |
 | `make demo` | `scripts/demo.sh` | RTL sim → quote → Rust verifier → cert create/verify on a real Hugging Face model. |
+
+## v0.2.0: side-channel evaluation blocks
+
+| Block | File | Notes |
+|---|---|---|
+| Masked Montgomery multiplier, 2-share | rtl/mont_mul_masked_v2.v | arithmetic shares mod n, time-shared radix-2 datapath |
+| Masked Montgomery multiplier, 3-share | rtl/mont_mul_masked3.v | second-order target |
+| MASK_EN wrapper | rtl/mont_mul_wrap.v | plain / v2 / 3-share |
+| TVLA flow | tools/synth_sky130.sh, tools/tvla_netlist.py, tb/tvla_harness.cpp, tools/tvla_stats.py, test/gate.py | see docs/TVLA.md |
+| Ticket verifier (ADR-0003) | verifier/src/ticket.rs | device side pending |

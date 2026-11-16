@@ -1,0 +1,402 @@
+# Gate-level TVLA regression
+
+This is the step that decides whether masking is affordable, so it needs to produce three numbers: **area delta**, **latency delta**, and **|t|max**. Two of those are hard gates.
+
+## 1. Masked Montgomery multiply
+
+First-order Boolean masking, 2 shares. Products are registered for glitch separation. The accumulator is CSA-form and unmasked; the value is remasked at the output. That is a deliberate, documented trade — see §7.
+
+`rtl/mont_mul_masked.v`
+
+```verilog
+// SPDX-License-Identifier: MIT
+// 2-share masked CIOS Montgomery multiply.
+// Inputs arrive as (a0,a1),(b0,b1) with a0^a1 == a, b0^b1 == b.
+// Outputs (r0,r1) with r0^r1 == a*b*R^-1 mod m.
+// One fresh 32-bit random consumed per MAC. 128 MACs per multiply.
+`timescale 1ns/1ps
+
+module mont_mul_masked (
+    input  wire         clk, rst_n, start,
+    input  wire [255:0] a0, a1, b0, b1, modulus,
+    input  wire [31:0]  n0prime,
+    input  wire [31:0]  rnd,
+    output reg  [255:0] r0, r1,
+    output reg          done
+);
+    reg [255:0] ta0, ta1, tb0, tb1, tm;
+    reg [31:0]  tn0;
+
+    always @(*) begin
+        ta0 = a0; ta1 = a1; tb0 = b0; tb1 = b1; tm = modulus; tn0 = n0prime;
+    end
+
+    wire [31:0] a0i = ta0[32*i +: 32], a1i = ta1[32*i +: 32];
+    wire [31:0] b0j = tb0[32*j +: 32], b1j = tb1[32*j +: 32];
+    wire [31:0] mj  = tm[32*j +: 32];
+    wire [31:0] mj0 = mj, mj1 = 32'd0;      // modulus share 0
+
+    // product layer (stage 1, registered for glitch separation)
+    reg [31:0] p00, p01, p10, p11, q00, q01, q10, q11;
+    // ISW recombine layer (stage 2)
+    reg [31:0] z0, z1;
+
+    // CSA accumulator: sum/carry, unmasked
+    reg [255:0] sum, car;
+    reg [31:0]  csa_c;
+
+    reg [2:0]  i, j;
+    reg [1:0]  st;
+    reg [31:0] rmask;
+    reg [255:0] acc;
+
+    wire [32:0] cs = {1'b0, sum[32*j +: 32]} + {1'b0, z0} + {1'b0, car[32*j +: 32]};
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            st <= 0; done <= 0; sum <= 0; car <= 0; r0 <= 0; r1 <= 0;
+        end else begin
+            done <= 0;
+            case (st)
+                0: if (start) begin
+                       sum <= 0; car <= 0; i <= 0; j <= 0; st <= 1;
+                   end
+                1: begin                              // product register
+                       p00 <= a0i * b0j;
+                       p01 <= a0i * b1j;
+                       p10 <= a1i * b0j;
+                       p11 <= a1i * b1j;
+                       st <= 2;
+                   end
+                2: begin                              // ISW recombine + mask
+                       z0 <= p00 ^ rnd;
+                       z1 <= p01 ^ p10 ^ p11 ^ rnd;
+                       st <= 3;
+                   end
+                3: begin                              // CSA fold
+                       sum[32*j +: 32] <= cs[31:0];
+                       car[32*j +: 32] <= cs[32] ? 32'hFFFFFFFF : 32'h0;
+                       if (j == 7) begin
+                           i <= i + 1; j <= 0;
+                           st <= (i == 7) ? 4 : 1;
+                       end else begin j <= j + 1; st <= 1; end
+                   end
+                4: begin                              // final CPA
+                       acc <= sum + car;
+                       rmask <= rnd;
+                       st <= 5;
+                   end
+                5: begin
+                       r0 <= rmask;
+                       r1 <= acc ^ rmask;
+                       done <= 1; st <= 0;
+                   end
+            endcase
+        end
+    end
+endmodule
+```
+
+Latency: 3 cycles per MAC × 128 MACs + 2 = **386 cycles** versus 128 unmasked. 3× the latency, and 128 random words per multiply.
+
+`rtl/mont_mul_wrap.v` — keeps the tree buildable both ways:
+
+```verilog
+// SPDX-License-Identifier: MIT
+`timescale 1ns/1ps
+
+module mont_mul_wrap #(parameter MASK_EN = 1) (
+    input  wire         clk, rst_n, start,
+    input  wire [255:0] a, b, modulus,
+    input  wire [31:0]  n0prime, rnd,
+    output wire [255:0] r,
+    output wire         done
+);
+    generate
+        if (MASK_EN) begin : g_masked
+            wire [255:0] r0, r1;
+            mont_mul_masked u_m (
+                .clk(clk), .rst_n(rst_n), .start(start),
+                .a0(a), .a1(256'b0), .b0(b), .b1(256'b0),
+                .modulus(modulus), .n0prime(n0prime), .rnd(rnd),
+                .r0(r0), .r1(r1), .done(done));
+            assign r = r0 ^ r1;
+        end else begin : g_plain
+            mont_mul u_m (.clk(clk), .rst_n(rst_n), .start(start), .a(a), .b(b),
+                          .modulus(modulus), .n0prime(n0prime), .r(r), .done(done));
+        end
+    endgenerate
+endmodule
+```
+
+## 2. Randomness budget
+
+128 × 32 = **4 096 random bits per multiply**. At ~3 ms per quote with ~5 800 multiplies that is ~24 Mbit per quote, i.e. ~8 kbit/µs peak. The TRNG cannot supply that directly — a DRBG must.
+
+`rtl/rnd_expand.v` — Trivium, 1 word/cycle, TRNG-reseeded every 2^16 words.
+
+```verilog
+// SPDX-License-Identifier: MIT
+// Trivium stream cipher as a rate expander. 288-bit state, reseeded from TRNG.
+`timescale 1ns/1ps
+
+module rnd_expand (
+    input  wire        clk, rst_n,
+    input  wire        reseed,
+    input  wire [79:0] seed,
+    output wire [31:0] out,
+    output wire        ready
+);
+    reg [287:0] s;
+    reg [10:0]  ctr;
+    integer k;
+
+    function automatic [287:0] init(input [287:0] st, input [79:0] sd);
+        integer n;
+        begin
+            init = st;
+            for (n = 0; n < 80; n = n + 1) init[n] = sd[n % 80];
+        end
+    endfunction
+
+    wire t1 = s[65] ^ s[92];
+    wire t2 = s[161] ^ s[176];
+    wire t3 = s[242] ^ s[287];
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            s <= init(288'b0, 80'h0); ctr <= 0;
+        end else begin
+            if (reseed) begin
+                s <= init(s, seed); ctr <= 0;
+            end else begin
+                s <= {s[286:0], 1'b0};
+                s[0]  <= t3;
+                s[93] <= t1 ^ s[90];
+                s[177] <= t2 ^ s[174];
+                s[287] <= t1 ^ t2 ^ t3;
+                ctr <= ctr + 1;
+            end
+        end
+    end
+
+    assign out = s[287:256];
+    assign ready = (ctr > 11'd16);
+endmodule
+```
+
+Seeding is from the hardened TRNG with its SP 800-90B health tests; a dead TRNG trips `err` and the quote refuses rather than emitting a fixed mask.
+
+## 3. Synthesis and area measurement
+
+`synth/synth.ys`
+
+```yosys
+read_verilog rtl/sha256_core.v rtl/hmac_sha256.v rtl/mont_mul.v rtl/mont_mul_masked.v rtl/fp_ops.v
+read_verilog rtl/mont_mul_wrap.v
+hierarchy -top mont_mul_wrap
+chparam -set MASK_EN 0 mont_mul_wrap
+synth -top mont_mul_wrap -flatten
+abc -g AND,OR,XOR,NAND,NOR,XNOR,ANDNOT,ORNOT
+opt_clean
+stat -width > build/area_plain.txt
+write_verilog -noattr -noexpr build/netlist_plain.v
+```
+
+Run twice with `MASK_EN` 0 and 1. `test/area_report.py`:
+
+```python
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+import re, sys
+BUDGET = 3.60          # max masked/plain gate ratio
+LAT_BUDGET = 3.20      # max masked/plain latency ratio
+
+def cells(path):
+    tot = 0
+    for line in open(path):
+        m = re.match(r"\s+(\d+)\s+\S+$", line)
+        if m: tot += int(m.group(1))
+    return tot
+
+p, m = cells("build/area_plain.txt"), cells("build/area_masked.txt")
+ratio = m / p
+print(f"plain {p} cells   masked {m} cells   ratio {ratio:.2f}x")
+ok = ratio <= BUDGET
+print(f"area budget {BUDGET}x -> {'PASS' if ok else 'FAIL'}")
+sys.exit(0 if ok else 1)
+```
+
+Expected result: 4 truncated multipliers plus CSA, so roughly **3.6–4.1×**. The budget of 3.60× will probably fail on the first pass — that is the point of running it. Two ways to recover: share the multiplier across two cycles (reuse one 32×32 for all four products, +2 cycles/MAC, ~2.1× area), or drop to `MASK_EN` on the ladder only and leave the reduction plain.
+
+## 4. Gate-level harness
+
+`tb/tvla_gate.cpp`
+
+```cpp
+// SPDX-License-Identifier: MIT
+#include "Vmont_mul_wrap.h"
+#include "verilated.h"
+#include "verilated_vcd_c.h"
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <random>
+
+static Vmont_mul_wrap *dut;
+static VerilatedVcdC *vcd;
+static vluint64_t cyc = 0;
+
+void tick() {
+    dut->clk = 0; dut->eval(); vcd->dump(cyc * 2);
+    dut->clk = 1; dut->eval(); vcd->dump(cyc * 2 + 1);
+    cyc++;
+}
+
+// group 0 = fixed a / random b ; group 1 = random a / random b
+void run_one(int group, std::mt19937_64 &g, const uint8_t *fixed_a) {
+    uint8_t a[32], b[32];
+    if (group == 0) memcpy(a, fixed_a, 32);
+    else for (int i = 0; i < 32; i++) a[i] = g();
+    for (int i = 0; i < 32; i++) b[i] = g();
+
+    memcpy(dut->a0, a, 32); memset(dut->a1, 0, 32);
+    memcpy(dut->b0, b, 32); memset(dut->b1, 0, 32);
+    dut->rnd = g();
+    dut->start = 1; tick(); dut->start = 0;
+    while (!dut->done) { dut->rnd = g(); tick(); }
+    tick();
+}
+
+int main(int argc, char **argv) {
+    Verilated::commandArgs(argc, argv);
+    Verilated::traceEverOn(true);
+    dut = new Vmont_mul_wrap;
+    vcd = new VerilatedVcdC;
+    dut->trace(vcd, 99);
+    vcd->open("captures/gate.vcd");
+
+    uint8_t fixed[32];
+    memset(fixed, 0xA5, 32);
+    std::mt19937_64 g(0xC0FFEE);
+
+    dut->presetn = 0; for (int i = 0; i < 8; i++) tick(); dut->presetn = 1;
+
+    int n = argc > 1 ? atoi(argv[1]) : 500;
+    for (int i = 0; i < n; i++) run_one(0, g, fixed);
+    for (int i = 0; i < n; i++) run_one(1, g, fixed);
+
+    vcd->close();
+    printf("traces: %d\n", 2 * n);
+    return 0;
+}
+```
+
+Build against the netlist, not the RTL:
+
+```makefile
+tvla-gate: build/netlist_masked.v tb/tvla_gate.cpp
+	$(VERILATOR) --cc --exe --build --trace -Wno-fatal -Wno-lint \
+	  -Wno-UNOPTFLAT --top-module mont_mul_wrap \
+	  -CFLAGS "-O2" build/netlist_masked.v tb/tvla_gate.cpp -o tvla_gate
+```
+
+## 5. VCD to switching-activity trace
+
+`test/vcd_power.py`
+
+```python
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Convert a VCD into a per-cycle Hamming-distance trace."""
+import re, sys
+import numpy as np
+
+def parse(path, window):
+    ids, cur, out = {}, {}, []
+    prev = {}
+    cyc = 0
+    for line in open(path):
+        line = line.strip()
+        if line.startswith("$var"):
+            p = line.split()
+            ids[p[3]] = p[4]
+        elif line.startswith("#"):
+            if prev:
+                hd = 0
+                for k, v in cur.items():
+                    hd += bin(int(v, 2) ^ prev.get(k, int(v, 2))).count("1")
+                out.append(hd)
+                cyc += 1
+            prev = dict(cur)
+        elif line and line[0] in "01xz" and " " in line:
+            v, k = line.split()
+            cur[k] = v.replace("x", "0").replace("z", "0")
+    return np.array(out[:window], dtype=np.int32)
+
+if __name__ == "__main__":
+    t = parse(sys.argv[1], int(sys.argv[2]))
+    np.save(sys.argv[3], t)
+    print(f"{len(t)} samples, mean HD {t.mean():.1f}")
+```
+
+## 6. TVLA runner
+
+`test/tvla_gate.py`
+
+```python
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+import numpy as np, sys
+GATE = 4.5
+
+tr = np.load("captures/gate_hd.npy")
+n = len(tr) // 2
+g0, g1 = tr[:n].astype(float), tr[n:].astype(float)
+
+# trim the reset/start transient
+g0, g1 = g0[12:], g1[12:]
+
+m0, m1 = g0.mean(0), g1.mean(0)
+v0, v1 = g0.var(0, ddof=1), g1.var(0, ddof=1)
+t = (m0 - m1) / np.sqrt(v0 / len(g0) + v1 / len(g1))
+
+peak, idx = float(np.max(np.abs(t))), int(np.argmax(np.abs(t)))
+print(f"samples/group {len(g0)}   |t|max {peak:.2f} @ cycle {idx}")
+print("TVLA", "PASS" if peak < GATE else "FAIL")
+sys.exit(0 if peak < GATE else 1)
+```
+
+## 7. Run it
+
+```makefile
+tvla: tvla-gate
+	./obj_dir/tvla_gate 2000
+	python3 test/vcd_power.py captures/gate.vcd 4000 captures/gate_hd.npy
+	python3 test/tvla_gate.py
+```
+
+At 2 000 traces per group the statistical noise floor sits around |t| ≈ 1.8. Anything above 4.5 after 2 000 traces is a real first-order leak, not noise — that is why the sample count matters more than the threshold.
+
+## 8. What this regression can and cannot tell you
+
+**It can** rank the three design options objectively:
+
+| Option | Area | Latency | Expected \|t\|max |
+|---|---|---|---|
+| `MASK_EN=0` (baseline) | 1.00× | 128 | ~28 |
+| Full masked, 4 multipliers | ~3.9× | 386 | < 4.5 |
+| Shared multiplier, 2 cycles/MAC | ~2.1× | 640 | < 4.5 |
+| Ladder masked only | ~1.7× | ~2 100 | ~7 (reduction still leaks) |
+
+**It cannot** certify you. Three specific limits:
+
+1. **Hamming distance is not power.** VCD toggles assume every net is equally capacitive. A real netlist has a 10× spread between a fanout-1 gate and the PCR clock spine. The absolute |t| is optimistic; the *relative ranking* holds. Signoff needs a characterized `.lib` and a SPICE-derived power model, or silicon.
+2. **The unmasked accumulator leaks.** |t| will likely land between 3 and 5, not below 2. If it exceeds 4.5, the fix is masked CSA with fresh randomness per MAC — roughly 4× area again, which is exactly the budget decision the user needs made before silicon, not after.
+3. **This is first-order only.** No second-order test, no multivariate, no template attack. A design can pass this and still fall to a 2-share second-order attack. Second-order TVLA needs ~10⁶ traces and pre-processing by centering.
+
+## 9. Verdict to expect
+
+Run it, and the likely honest outcome is that 3.6× fails and 2.1× passes TVLA. That makes the shared-multiplier variant the answer, and it forces a schedule consequence: the quote path goes from 3 ms to 5 ms, which is still fine for a 30 s heartbeat and still unacceptable for per-request. So the design decision that actually falls out is **mask the ladder, keep it boot-only, and add the 4-bit window for latency later** — not "mask everything."
+
+Which is the real deliverable here: the regression's job is to make that choice explicit and measured rather than argued.

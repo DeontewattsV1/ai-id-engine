@@ -1,0 +1,15 @@
+# fault_alarm: once zeroize is high it stays high forever (no reset port
+# exists), and any fault input sets both complementary latches.
+[options]
+mode prove
+depth 2
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal fault_alarm.v
+prep -top fault_alarm
+
+[files]
+rtl/fault_alarm.v
