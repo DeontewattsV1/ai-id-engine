@@ -210,7 +210,7 @@ tvla: cells-check build/obj_plain/tvla build/obj_$(MASKED)/tvla
 	mkdir -p $(TV) && rm -f $(TV)/gate.rc
 	@echo "== TVLA profile $(PROFILE): $(T_N) traces/group, M=$(T_M), alpha=$(T_ALPHA), masked DUT $(MASKED)"
 	python3 tools/threshold.py --samples $(T_M) --traces $(T_N) --alpha $(T_ALPHA)
-	python3 test/area_report.py build/area_plain.txt build/area_$(MASKED).txt $(TV)/area.json || true
+	python3 test/area_report.py build/area_plain.txt build/area_$(MASKED).txt $(TV)/area.json --plain-top mont_mul --masked-top $(DUT_TOP_$(MASKED)) || true
 	$(COLLECT) --bin build/obj_$(MASKED)/tvla --caps build/tvla_$(MASKED).caps --dut $(MASKED) --mode null --n $(T_N) --seed 11 --out $(TV)/$(MASKED)_null
 	python3 test/null_control.py $(TV)/$(MASKED)_null $(TV)/null.json --alpha $(T_ALPHA) || true
 	$(COLLECT) --bin build/obj_plain/tvla --caps build/tvla_plain.caps --dut plain --mode fixed --n $(T_POS) --seed 13 --out $(TV)/plain_fixed
