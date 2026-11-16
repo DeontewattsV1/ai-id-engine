@@ -1,63 +1,52 @@
 // SPDX-License-Identifier: MIT
 `timescale 1ns/1ps
-
-module mont_mul #(parameter W = 8) (
+// Fixed-latency, bit-serial radix-2 Montgomery product for 256-bit odd moduli.
+// Requires 0 <= a,b < modulus and n0prime == -modulus^-1 (mod 2^32).
+// Result = a*b*2^(-256) mod modulus. This block is NOT masked against DPA.
+module mont_mul (
     input  wire         clk, rst_n, start,
     input  wire [255:0] a, b, modulus,
     input  wire [31:0]  n0prime,
     output reg  [255:0] r,
     output reg          done
 );
-    reg [255:0] t;      // 9 words, t[8] carries
-    reg [2:0]   i, j;
-    reg [1:0]   st;
-    reg [32:0]  c, s;
-    reg [31:0]  m;
-    reg [255:0] ta, tb, tmod;
-    reg [31:0]  tn0;
-
-    always @(*) begin
-        ta = a; tb = b; tmod = modulus; tn0 = n0prime;
-    end
-
-    wire [31:0] a_i = ta[32*i +: 32];
-    wire [31:0] b_j = tb[32*j +: 32];
-    wire [31:0] m_j = tmod[32*j +: 32];
-    wire [31:0] t_j = t[32*j +: 32];
+    localparam [1:0] IDLE=2'd0, RUN=2'd1, REDUCE=2'd2;
+    reg [1:0] state;
+    reg [255:0] aa, bb, nn;
+    reg [257:0] t;
+    reg [7:0] bit_index;
+    wire [257:0] t_plus_a = t + (bb[bit_index] ? {2'b0, aa} : 258'd0);
+    wire [257:0] t_plus_n = t_plus_a +
+                           (t_plus_a[0] ? {2'b0, nn} : 258'd0);
+    wire [257:0] reduced = (t >= {2'b0, nn}) ? t-{2'b0, nn} : t;
 
     always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin st <= 0; done <= 0; r <= 0; t <= 0; end
-        else begin
-            done <= 0;
-            case (st)
-                0: if (start) begin t <= 0; i <= 0; j <= 0; st <= 1; end
-                1: begin                        // multiply-accumulate row
-                       c = {1'b0, t_j} + {1'b0, (a_i * b_j)} + 33'b0;
-                       s = {1'b0, t_j} + {1'b0, (a_i * b_j)} + c[32];
-                       t[32*j +: 32] <= s[31:0];
-                       if (j == 7) begin
-                           c = {1'b0, t[256 +: 32]} + c[32];
-                           t[256 +: 32] <= c[31:0];
-                           m <= (t[31:0] * tn0);   // t[0] * n0'
-                           j <= 0; st <= 2;
-                       end else j <= j + 1;
-                   end
-                2: begin                        // reduction row
-                       c = {1'b0, t_j} + {1'b0, (m * m_j)} + 33'b0;
-                       s = {1'b0, t_j} + {1'b0, (m * m_j)} + c[32];
-                       if (j == 0) t[32*j +: 32] <= 0;
-                       else        t[32*(j-1) +: 32] <= s[31:0];
-                       if (j == 7) begin
-                           c = {1'b0, t[256 +: 32]} + c[32];
-                           t[224 +: 32] <= c[31:0];
-                           t[256 +: 32] <= 0;
-                           if (i == 7) st <= 3; else begin i <= i + 1; j <= 0; st <= 1; end
-                       end else j <= j + 1;
-                   end
-                3: begin                        // unconditional conditional-subtract
-                       r <= (t[255:0] >= tmod) ? (t[255:0] - tmod) : t[255:0];
-                       done <= 1; st <= 0;
-                   end
+        if (!rst_n) begin
+            state <= IDLE; done <= 1'b0; r <= 0;
+            aa <= 0; bb <= 0; nn <= 0; t <= 0; bit_index <= 0;
+        end else begin
+            done <= 1'b0;
+            case (state)
+                IDLE: if (start) begin
+`ifndef SYNTHESIS
+                    if (!modulus[0] || a >= modulus || b >= modulus ||
+                        (modulus[31:0]*n0prime) != 32'hffffffff)
+                        $fatal(1, "mont_mul: invalid operand or modulus parameters");
+`endif
+                    aa <= a; bb <= b; nn <= modulus;
+                    t <= 0; bit_index <= 0; state <= RUN;
+                end
+                RUN: begin
+                    t <= t_plus_n >> 1;
+                    if (bit_index == 8'd255) state <= REDUCE;
+                    else bit_index <= bit_index+1'b1;
+                end
+                REDUCE: begin
+                    r <= reduced[255:0];
+                    done <= 1'b1;
+                    state <= IDLE;
+                end
+                default: state <= IDLE;
             endcase
         end
     end

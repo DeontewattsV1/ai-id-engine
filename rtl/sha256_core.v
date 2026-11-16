@@ -1,40 +1,36 @@
-// SHA-256 measurement primitive.
 // SPDX-License-Identifier: MIT
-// Iterative SHA-256. One 512-bit block per invocation, 64 cycles.
 `timescale 1ns/1ps
-
-module sha256_core (
-    input  wire         clk,
-    input  wire         rst_n,
-    input  wire         start,
-    input  wire [511:0] block,
-    output reg          busy,
-    output reg          done,
-    output reg  [255:0] digest
+// SHA-256 compression of exactly one PREPADDED 512-bit message block.
+// Uses standard initial IV; NOT a multi-block streaming hash engine.
+// Caller must supply correct SHA-256 padding. See tb/tb_sha256_core.sv.
+module sha256_core(
+    input wire clk, rst_n, start,
+    input wire [511:0] block,
+    output reg busy, done,
+    output reg [255:0] digest
 );
-
-    function automatic [31:0] rotr(input [31:0] x, input [4:0] n);
-        rotr = (x >> n) | (x << (32 - n));
+    function automatic [31:0] rotr;
+        input [31:0] x;
+        input [4:0] n;
+        begin rotr=(x>>n)|(x<<(32-n)); end
     endfunction
-
-    function automatic [31:0] bsig0(input [31:0] x);
-        bsig0 = rotr(x,2) ^ rotr(x,13) ^ rotr(x,22);
+    function automatic [31:0] BS0;
+        input [31:0] x;
+        begin BS0=rotr(x,2)^rotr(x,13)^rotr(x,22); end
     endfunction
-
-    function automatic [31:0] bsig1(input [31:0] x);
-        bsig1 = rotr(x,6) ^ rotr(x,11) ^ rotr(x,25);
+    function automatic [31:0] BS1;
+        input [31:0] x;
+        begin BS1=rotr(x,6)^rotr(x,11)^rotr(x,25); end
     endfunction
-
-    function automatic [31:0] ssig0(input [31:0] x);
-        ssig0 = rotr(x,7) ^ rotr(x,18) ^ (x >> 3);
+    function automatic [31:0] SS0;
+        input [31:0] x;
+        begin SS0=rotr(x,7)^rotr(x,18)^(x>>3); end
     endfunction
-
-    function automatic [31:0] ssig1(input [31:0] x);
-        ssig1 = rotr(x,17) ^ rotr(x,19) ^ (x >> 10);
+    function automatic [31:0] SS1;
+        input [31:0] x;
+        begin SS1=rotr(x,17)^rotr(x,19)^(x>>10); end
     endfunction
-
-    // FIPS 180-4 round constants
-    reg [31:0] k [0:63];
+    reg [31:0] k[0:63];
     initial begin
         k[ 0]=32'h428a2f98; k[ 1]=32'h71374491; k[ 2]=32'hb5c0fbcf; k[ 3]=32'he9b5dba5;
         k[ 4]=32'h3956c25b; k[ 5]=32'h59f111f1; k[ 6]=32'h923f82a4; k[ 7]=32'hab1c5ed5;
@@ -53,60 +49,42 @@ module sha256_core (
         k[56]=32'h748f82ee; k[57]=32'h78a5636f; k[58]=32'h84c87814; k[59]=32'h8cc70208;
         k[60]=32'h90befffa; k[61]=32'ha4506ceb; k[62]=32'hbef9a3f7; k[63]=32'hc67178f2;
     end
-
-    reg [31:0] h [0:7];
-    reg [31:0] w [0:63];
-    reg [31:0] a,b,c,d,e,f,g,hh;
-    reg [6:0]  round;
-    reg        active;
-
-    integer i;
-
-    wire [31:0] t1 = hh + bsig1(e) + ((e & f) ^ (~e & g)) + k[round] + w[round];
-    wire [31:0] t2 = bsig0(a) + ((a & b) ^ (a & c) ^ (b & c));
-
+    reg [31:0] w[0:63];
+    reg [31:0] a,b,c,d,e,f,g,h;
+    reg [6:0] round;
+    reg active;
+    integer j;
+    wire [31:0] current_word = (round < 16) ? w[round] :
+        (SS1(w[round-2]) + w[round-7] + SS0(w[round-15]) + w[round-16]);
+    wire [31:0] T1 = h + BS1(e) + ((e & f) ^ (~e & g)) + k[round] + current_word;
+    wire [31:0] T2 = BS0(a) + ((a & b) ^ (a & c) ^ (b & c));
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            busy <= 0; done <= 0; active <= 0; round <= 0;
-            digest <= 256'b0;
+            busy<=0; done<=0; active<=0; round<=0; digest<=0;
         end else begin
-            done <= 0;
+            done<=0;
             if (start && !busy) begin
-                for (i = 0; i < 16; i = i + 1)
-                    w[i] <= block[511 - 32*i -: 32];
-                for (i = 16; i < 64; i = i + 1)
-                    w[i] <= ssig1(w[i-2]) + w[i-7] + ssig0(w[i-15]) + w[i-16];
-
-                h[0] <= 32'h6a09e667; h[1] <= 32'hbb67ae85;
-                h[2] <= 32'h3c6ef372; h[3] <= 32'ha54ff53a;
-                h[4] <= 32'h510e527f; h[5] <= 32'h9b05688c;
-                h[6] <= 32'h1f83d9ab; h[7] <= 32'h5be0cd19;
-
-                a <= 32'h6a09e667; b <= 32'hbb67ae85;
-                c <= 32'h3c6ef372; d <= 32'ha54ff53a;
-                e <= 32'h510e527f; f <= 32'h9b05688c;
-                g <= 32'h1f83d9ab; hh <= 32'h5be0cd19;
-
-                round <= 0; active <= 1; busy <= 1;
+                for(j=0;j<16;j=j+1) w[j]<=block[511-32*j -:32];
+                a<=32'h6a09e667; b<=32'hbb67ae85;
+                c<=32'h3c6ef372; d<=32'ha54ff53a;
+                e<=32'h510e527f; f<=32'h9b05688c;
+                g<=32'h1f83d9ab; h<=32'h5be0cd19;
+                round<=0; busy<=1; active<=1;
             end else if (active) begin
-                hh <= g; g <= f; f <= e;
-                e  <= d + t1;
-                d  <= c; c <= b; b <= a;
-                a  <= t1 + t2;
-
-                if (round == 63) begin
-                    h[0] <= h[0] + t1 + t2; h[1] <= h[1] + a;
-                    h[2] <= h[2] + b;       h[3] <= h[3] + c;
-                    h[4] <= h[4] + d;       h[5] <= h[5] + e;
-                    h[6] <= h[6] + f;       h[7] <= h[7] + g;
-                    hh   <= hh + hh;
-                    active <= 0; busy <= 0; done <= 1;
-                    for (i = 0; i < 8; i = i + 1)
-                        digest[255 - 32*i -: 32] <= h[i] + ((i==0)?t1+t2:
-                            (i==1)?a:(i==2)?b:(i==3)?c:(i==4)?d:(i==5)?e:(i==6)?f:hh);
-                end else begin
-                    round <= round + 1;
-                end
+                w[round]<=current_word;
+                h<=g; g<=f; f<=e;
+                e<=d+T1; d<=c; c<=b; b<=a; a<=T1+T2;
+                if (round==63) begin
+                    digest[255:224] <= 32'h6a09e667 + T1+T2;
+                    digest[223:192] <= 32'hbb67ae85 + a;
+                    digest[191:160] <= 32'h3c6ef372 + b;
+                    digest[159:128] <= 32'ha54ff53a + c;
+                    digest[127:96] <= 32'h510e527f + d+T1;
+                    digest[95:64] <= 32'h9b05688c + e;
+                    digest[63:32] <= 32'h1f83d9ab + f;
+                    digest[31:0] <= 32'h5be0cd19 + g;
+                    active<=0; busy<=0; done<=1;
+                end else round<=round+1'b1;
             end
         end
     end

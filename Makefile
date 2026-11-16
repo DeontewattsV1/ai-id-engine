@@ -9,22 +9,18 @@ obj_dir/Vid_engine_top: tb/tb_id_engine.cpp tb/ecdsa_dpi.cpp $(RTL)
 	  -Wno-fatal -Wno-lint -Wno-UNOPTFLAT \
 	  --top-module id_engine_top \
 	  -CFLAGS "-O2 -DVERILATOR" -LDFLAGS "-lcrypto" \
-	  $(RTL) tb/tb_id_engine.cpp tb/ecdsa_dpi.cpp -o Vid_engine_top
+	  -Irtl $(RTL) tb/tb_id_engine.cpp -o Vid_engine_top
 
 sim: obj_dir/Vid_engine_top
 	./obj_dir/Vid_engine_top
 
 lint:
-	$(VERILATOR) --lint-only -Wall -Wno-fatal -Irtl $(RTL) --top-module id_engine_top
+	$(VERILATOR) --lint-only -Wall -Irtl $(RTL) --top-module id_engine_top \
+	  -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNDRIVEN
 
 cov:
-	rm -f coverage.dat
-	$(VERILATOR) --cc --exe --build --coverage --timing -Irtl \
-	  -Wno-fatal -Wno-lint -Wno-UNOPTFLAT --top-module id_engine_top \
-	  -CFLAGS "-O2 -DVERILATOR" -LDFLAGS "-lcrypto" \
-	  $(RTL) tb/tb_id_engine.cpp tb/ecdsa_dpi.cpp -o Vid_engine_top
-	./obj_dir/Vid_engine_top
-	@test -s coverage.dat
+	$(VERILATOR) --cc --exe --build --coverage -Irtl $(RTL) tb/tb_id_engine.cpp
+	./obj_dir/Vid_engine_top && verilator_coverage --annotate cov/ logs/*.dat
 
 formal:
 	sby -f formal/gf_mult.sby
@@ -36,3 +32,19 @@ fuzz:
 	./obj_dir/gf_mult/Vgf_mult
 
 .PHONY: all sim lint cov formal fuzz
+
+
+# Independently scoped correctness gates. These do not sign off the full chip.
+math-oracle:
+	python3 tools/gen_bch_poly.py
+	python3 test/bch_roundtrip.py
+	python3 test/test_montgomery.py
+
+rtl-unit: math-oracle
+	python3 test/gen_rtl_vectors.py
+	iverilog -g2012 -s tb_mont_mul -o /tmp/ai-id-tb-mont rtl/mont_mul.v tb/tb_mont_mul.sv
+	vvp /tmp/ai-id-tb-mont
+	iverilog -g2012 -s tb_bch_enc -o /tmp/ai-id-tb-bch rtl/bch_enc.v tb/tb_bch_enc.sv
+	vvp /tmp/ai-id-tb-bch
+
+.PHONY: math-oracle rtl-unit

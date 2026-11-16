@@ -1,4 +1,4 @@
-// Layered identity derivation.
+// layered identity derivation
 // SPDX-License-Identifier: MIT
 // DICE layer: CDI_n = HMAC(UDS_or_CDI_{n-1}, "DICE" || label || measurement)
 // Alias key = HMAC(CDI_n, "ALIAS" || label)

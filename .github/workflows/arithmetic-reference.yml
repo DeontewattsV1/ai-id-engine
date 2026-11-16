@@ -1,0 +1,50 @@
+name: arithmetic-reference
+on:
+  push:
+    paths:
+      - 'rtl/bch_enc.v'
+      - 'rtl/mont_mul.v'
+      - 'rtl/bch_g.mem'
+      - 'rtl/alpha_pow.mem'
+      - 'tools/gen_bch_poly.py'
+      - 'test/bch_roundtrip.py'
+      - 'test/test_montgomery.py'
+      - 'test/puf_characterize.py'
+      - 'test/puf_characterize_test.py'
+      - 'test/tvla.py'
+      - 'test/tvla_test.py'
+      - 'test/gen_rtl_vectors.py'
+      - 'tb/tb_bch_enc.sv'
+      - 'tb/tb_mont_mul.sv'
+      - '.github/workflows/arithmetic-reference.yml'
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  math-and-rtl-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HDL simulator
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+      - name: Python math oracles
+        run: make math-oracle
+      - name: Deterministic ROM regeneration and unit RTL tests
+        run: make rtl-unit
+      - name: P-256 order-field modular product KAT
+        run: |
+          iverilog -g2012 -I rtl -s tb_mod_n_mul -o /tmp/ai-id-tb-nmod rtl/mont_mul.v rtl/mod_n_mul.v tb/tb_mod_n_mul.sv
+          vvp /tmp/ai-id-tb-nmod
+      - name: Field and subgroup inverse known-answer vectors
+        run: |
+          iverilog -g2012 -I rtl -s tb_fp_inv -o /tmp/ai-id-tb-inv rtl/mont_mul.v rtl/fp_ops.v tb/tb_fp_inv.sv
+          vvp /tmp/ai-id-tb-inv
+      - name: PUF characterization boundary/unit checks (no silicon evidence)
+        run: PYTHONPATH=test python3 test/puf_characterize_test.py
+      - name: Synthetic TVLA harness validation (NOT a silicon assessment)
+        run: |
+          python3 -m pip install --quiet 'numpy>=1.26,<3'
+          PYTHONPATH=test python3 test/tvla_test.py
+      - name: Assert ROM deterministic
+        run: git diff --exit-code -- rtl/bch_g.mem rtl/alpha_pow.mem

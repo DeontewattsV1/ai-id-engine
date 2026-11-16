@@ -12,10 +12,9 @@ module ecdsa_core (
     // k' = k + rho*n  => 320-bit scalar, fixed 320 iterations
     reg [319:0] kk;
     reg [9:0]   i;
-    reg [2:0]   st;
+    reg [3:0]   st;
     reg [255:0] rx, ry, rz, qx, qy, qz, tx, ty, tz;
     reg [255:0] r, s, k_inv, z;
-    reg [511:0] prod;                     // 320-bit scalar times 256-bit n
     reg         ea_start, ea_op;
     wire        ea_done;
     wire [255:0] ea_x, ea_y, ea_z;
@@ -33,21 +32,42 @@ module ecdsa_core (
                    .x3(ea_x), .y3(ea_y), .z3(ea_z), .done(ea_done));
 
     fp_inv u_inv (.clk(clk), .rst_n(rst_n), .start(inv_start), .a(inv_in),
-                  .m(P_MOD), .n0prime(P_N0), .r2(P_R2), .r(inv_r), .done(inv_done));
+                  .m(N_MOD), .n0prime(N_N0), .r2(N_R2), .r(inv_r), .done(inv_done));
 
     wire [255:0] k_base = priv;
     wire [63:0]  rho = blind_seed;
 
+    // Diagnostic only: the current ECDSA ladder is NOT a proven scalar
+    // multiplier. Enable in a SystemVerilog assertion-capable simulator
+    // to catch unexpected infinity on ordinary intermediate additions.
+`ifdef ENABLE_ECDSA_LADDER_SVA
+    ap_no_inf_midloop: assert property (
+        @(posedge clk) disable iff(!rst_n)
+        (st == 5 && ea_done && i != 0 && rz != 0) |-> (ea_z != 0));
+`endif
+    // Modular s = k_inv * (z + r*priv) mod N.
+    // Arithmetic is correct for canonical inputs; the SCALAR ENGINE and
+    // nonce generation remain UNSAFE and must not be used for signing.
+    reg nm_start;
+    reg [255:0] nm_a,nm_b,nm_sum;
+    wire nm_done;
+    wire [255:0] nm_r;
+    wire [256:0] z_plus_rpriv = {1'b0,z}+{1'b0,nm_r};
+    wire [256:0] z_plus_rpriv_reduced =
+        (z_plus_rpriv >= {1'b0,N_MOD}) ?
+        z_plus_rpriv-{1'b0,N_MOD} : z_plus_rpriv;
+    mod_n_mul nprod(.clk(clk),.rst_n(rst_n),.start(nm_start),
+                   .a(nm_a),.b(nm_b),.r(nm_r),.done(nm_done));
+
     integer n;
     always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin st <= 0; done <= 0; fail <= 0; ea_start <= 0; inv_start <= 0; end
+        if (!rst_n) begin st <= 0; done <= 0; fail <= 0; ea_start <= 0; inv_start <= 0; nm_start <= 0; end
         else begin
-            done <= 0; fail <= 0; ea_start <= 0; inv_start <= 0;
+            done <= 0; fail <= 0; ea_start <= 0; inv_start <= 0; nm_start <= 0;
             case (st)
                 0: if (start) begin
                        // k' = k + rho*n  (320-bit, constant time)
-                       prod = {k_base, 256'b0} + ({256'b0, rho} * N_MOD);
-                       kk <= {prod, k_base} + ({256'b0, rho} * N_MOD);
+                       kk <= {64'b0, k_base} + ({256'b0, rho} * N_MOD);
                        st <= 1;
                    end
                 1: begin   // randomize projective Q
@@ -73,20 +93,24 @@ module ecdsa_core (
                        rx <= rx * inv_r; ry <= ry * inv_r; st <= 8;   // to affine
                    end
                 8: begin
-                       r <= rx % N_MOD;                     // r = Q.x mod n
+                       r <= (rx >= N_MOD) ? rx - N_MOD : rx;                     // r = Q.x mod n
                        inv_in <= k_base; inv_start <= 1; st <= 9;
                    end
                 9: if (inv_done) begin
                        k_inv <= inv_r;
-                       z <= hash % N_MOD;
+                       z <= (hash >= N_MOD) ? hash - N_MOD : hash;
                        st <= 10;
                    end
-                10: begin
-                       s <= (k_inv * ((z + r * priv) % N_MOD)) % N_MOD;
-                       sig <= {r, s};
-                       if (r == 0 || s == 0) fail <= 1;
-                       done <= 1; st <= 0;
-                   end
+                10: begin nm_a<=r;nm_b<=priv;nm_start<=1;st<=11; end
+                11: if(nm_done) begin
+                        nm_sum<=z_plus_rpriv_reduced[255:0];st<=12;
+                    end
+                12: begin nm_a<=k_inv;nm_b<=nm_sum;nm_start<=1;st<=13; end
+                13: if(nm_done) begin
+                        s<=nm_r;sig<={r,nm_r};
+                        if(r==0 || nm_r==0) fail<=1;
+                        done<=1;st<=0;
+                    end
             endcase
         end
     end

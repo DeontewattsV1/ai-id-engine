@@ -1,4 +1,4 @@
-// Ratcheting key derivation from CDI.
+// ratcheting key derivation from CDI
 // SPDX-License-Identifier: MIT
 // Monotonic ratchet: K_{n+1} = HMAC(K_n, counter). Forward-secret.
 `timescale 1ns/1ps

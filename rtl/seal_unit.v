@@ -1,4 +1,4 @@
-// PCR-bound key wrapping.
+// PCR-bound key wrapping
 // SPDX-License-Identifier: MIT
 // Seal: wrap a 256-bit secret under AES-256-GCM key = KDF(CDI, PCR policy).
 // Unseal fails if any selected PCR changed. Models key release.

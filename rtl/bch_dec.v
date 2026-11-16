@@ -1,4 +1,4 @@
-// Syndrome, Berlekamp–Massey, and Chien-search decoder.
+// syndrome → Berlekamp–Massey → Chien → error positions.
 // SPDX-License-Identifier: MIT
 `timescale 1ns/1ps
 
