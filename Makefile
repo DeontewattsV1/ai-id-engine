@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: MIT
 VERILATOR ?= verilator
 RTL := $(sort $(wildcard rtl/*.v))
+VLT := rtl/lint_waivers.vlt
+# Simulation-only: public test UDS and CDI readback. Never use for hardware.
+SIM_DEFS := +define+AI_ID_SIM_PUF +define+AI_ID_DEBUG_READBACK
 
 all: sim
 
-obj_dir/Vid_engine_top: tb/tb_id_engine.cpp tb/ecdsa_dpi.cpp $(RTL)
-	$(VERILATOR) --cc --exe --build --timing -Irtl \
-	  -Wno-fatal -Wno-lint -Wno-UNOPTFLAT \
+obj_dir/Vid_engine_top: tb/tb_id_engine.cpp $(RTL)
+	$(VERILATOR) --cc --exe --build -j 0 \
+	  -Wno-fatal -Wno-lint -Wno-UNOPTFLAT $(SIM_DEFS) \
 	  --top-module id_engine_top \
 	  -CFLAGS "-O2 -DVERILATOR" -LDFLAGS "-lcrypto" \
 	  -Irtl $(VLT) $(RTL) tb/tb_id_engine.cpp -o Vid_engine_top
@@ -15,18 +18,28 @@ sim: obj_dir/Vid_engine_top
 	./obj_dir/Vid_engine_top
 
 lint:
-	$(VERILATOR) --lint-only -Wall -Irtl $(RTL) --top-module id_engine_top \
-	  -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNDRIVEN
+	$(VERILATOR) --lint-only -Wall -Irtl $(VLT) $(RTL) --top-module id_engine_top
+	$(VERILATOR) --lint-only -Wall -Irtl $(SIM_DEFS) $(VLT) $(RTL) --top-module id_engine_top
 
+# Narrow legacy "signoff" gates (added by the CI-fixer). They are much
+# narrower than their names suggest; see docs/OPERATIONAL.md:
+#   cov    - coverage-instrumented id_engine_top sim; gate = non-empty counters
+#   formal - SymbiYosys proof of gf_mult only (not the full chip)
+#   fuzz   - PUF harness unit checks + exhaustive gf_mult simulation
 cov:
-	$(VERILATOR) --cc --exe --build --coverage -Irtl $(RTL) tb/tb_id_engine.cpp
-	./obj_dir/Vid_engine_top && verilator_coverage --annotate cov/ logs/*.dat
+	$(VERILATOR) --cc --exe --build -j 0 --coverage \
+	  -Wno-fatal -Wno-lint -Wno-UNOPTFLAT $(SIM_DEFS) \
+	  --top-module id_engine_top --Mdir obj_cov \
+	  -CFLAGS "-O2 -DVERILATOR" -LDFLAGS "-lcrypto" \
+	  -Irtl $(VLT) $(RTL) tb/tb_id_engine.cpp -o Vid_engine_top
+	./obj_cov/Vid_engine_top
+	python3 test/cov_gate.py coverage.dat
 
 formal:
 	sby -f formal/gf_mult.sby
 
 fuzz:
-	python3 test/puf_characterize_test.py
+	PYTHONPATH=test python3 test/puf_characterize_test.py
 	$(VERILATOR) --cc --exe --build --top-module gf_mult -Wno-fatal \
 	  --Mdir obj_dir/gf_mult $(abspath rtl/gf_mult.v tb/tb_gf_mult.cpp) -o Vgf_mult
 	./obj_dir/gf_mult/Vgf_mult
@@ -72,6 +85,6 @@ test: lint sim rtl-unit regmap verifier
 	@echo "ALL OPERATIONAL GATES PASS"
 
 clean:
-	rm -rf obj_dir verifier/target verifier/demo-out
+	rm -rf obj_dir obj_cov verifier/target verifier/demo-out coverage.dat formal/gf_mult
 
 .PHONY: regmap verifier test clean

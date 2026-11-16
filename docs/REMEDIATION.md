@@ -112,5 +112,7 @@ GoodShyt Group Inc. | AI-assisted implementation.
   verification against trusted roots, bounds-checked PCR policy, 13 tests.
 - Driver core aligned with the RTL register ABI; unimplemented paths return
   `-EOPNOTSUPP` instead of spinning forever.
-- Legacy `signoff` workflow made manual-only; new `ci.yml` runs the
-  operational gates. Unresolved blockers above are unchanged.
+- New `ci.yml` runs the operational gates. The legacy `signoff` workflow
+  now passes, but only with the narrow formal/fuzz/coverage gates introduced
+  by the CI-fixer (gf_mult proof, non-empty coverage); it is not a tapeout
+  signoff. Unresolved blockers above are unchanged.
