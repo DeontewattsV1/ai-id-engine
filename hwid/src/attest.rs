@@ -302,8 +302,19 @@ fn soft_key() -> Result<ed25519_dalek::SigningKey, String> {
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    crate::write_private(&p, hex::encode(k.to_bytes()).as_bytes())
-        .map_err(|e| format!("{}: {e}", p.display()))?;
+    // Write to a private temp file and rename, so a concurrent reader never
+    // sees a partially written key.
+    let tmp = p.with_extension(format!("key.tmp{}", std::process::id()));
+    crate::write_private(&tmp, hex::encode(k.to_bytes()).as_bytes())
+        .map_err(|e| format!("{}: {e}", tmp.display()))?;
+    if let Err(e) = std::fs::rename(&tmp, &p) {
+        let _ = std::fs::remove_file(&tmp);
+        if p.exists() {
+            // Lost a creation race: use the key that won.
+            return soft_key();
+        }
+        return Err(format!("{}: {e}", p.display()));
+    }
     Ok(k)
 }
 
