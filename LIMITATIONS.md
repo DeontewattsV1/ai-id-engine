@@ -1,6 +1,6 @@
-# Limitations (v0.1.0) — read before relying on any of this
+# Limitations (v0.2.0) — read before relying on any of this
 
-v0.1.0 is a **working prototype**: everything below runs and is tested, but it
+v0.2.0 is a **working prototype** (pre-silicon assessment, FPGA proxy): everything below runs and is tested, but it
 is not a certified security product. Nothing here has been through FIPS 140-3,
 CAVP, Common Criteria, or an external security review.
 

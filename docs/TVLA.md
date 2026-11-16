@@ -1,6 +1,7 @@
 # TVLA: simulated gate-level leakage evidence (v0.2.0)
 
-> **Simulated traces are not silicon.** A pass is evidence at the stated
+> **Pre-silicon assessment, FPGA proxy. Simulated traces are not silicon.**
+> Nothing here is side-channel certified. A pass is evidence at the stated
 > trace count and model fidelity, not a certification. CI is not signoff.
 > See [certification-scope.md](certification-scope.md).
 

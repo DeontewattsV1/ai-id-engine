@@ -1,0 +1,111 @@
+name: release
+
+# Push a tag v*.*.* on main to build and publish a release:
+#   static musl hwid/aiid/ai-id-verifier, the REPRO=1 bitstream (digests must
+#   match fpga/repro.sha256), a TVLA evidence tarball for masked_v2 and
+#   masked3 (summaries, equivalence status, signed evidence reports with a
+#   software root), SHA256SUMS, and docs/release-notes/<tag>.md as the body.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+env:
+  OSS_CAD_SUITE_VERSION: "2026-11-15"
+
+permissions:
+  contents: read
+
+jobs:
+  bins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: rustup target add x86_64-unknown-linux-musl
+      - run: make release-bins
+      - name: Collect
+        run: |
+          mkdir -p out
+          cp hwid/target/x86_64-unknown-linux-musl/release/hwid out/hwid-linux-x86_64
+          cp hwid/target/x86_64-unknown-linux-musl/release/aiid out/aiid-linux-x86_64
+          cp verifier/target/x86_64-unknown-linux-musl/release/ai-id-verifier out/ai-id-verifier-linux-x86_64
+          d=aiid-${GITHUB_REF_NAME}-linux-x86_64
+          mkdir -p $d && cp out/*-linux-x86_64 README.md LIMITATIONS.md LICENSE $d/
+          tar czf out/$d.tar.gz $d
+      - uses: actions/upload-artifact@v4
+        with: { name: bins, path: out/ }
+
+  fpga:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: ${{ env.OSS_CAD_SUITE_VERSION }}
+          github-token: ${{ github.token }}
+      - run: make -C fpga repro B=build_rel
+      - run: make -C fpga repro-check B=build_rel
+      - name: Collect
+        run: |
+          mkdir -p out
+          cp fpga/build_rel/ai_id_engine_ulx3s.bit out/ai_id_engine_ulx3s-repro-${GITHUB_REF_NAME}.bit
+          cp fpga/build_rel/summary.txt out/fpga-summary.txt
+          tar czf out/fpga-ulx3s-ecp5-85f-${GITHUB_REF_NAME}.tar.gz -C fpga/build_rel \
+            ai_id_engine_ulx3s.bit ai_id_engine_netlist.v yosys.log nextpnr.log nextpnr_report.json \
+            utilization_ecp5.txt summary.txt digests.txt toolchain.txt otp_image.vh
+      - uses: actions/upload-artifact@v4
+        with: { name: fpga, path: out/ }
+
+  tvla:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: ${{ env.OSS_CAD_SUITE_VERSION }}
+          github-token: ${{ github.token }}
+      - run: sudo apt-get update && sudo apt-get install -y python3-numpy
+      - name: TVLA masked_v2 and masked3 (profile ci) + equivalence + evidence reports
+        run: |
+          set +e
+          for m in masked_v2 masked3; do
+            make tvla PROFILE=ci MASKED=$m TV=build/tvla_$m
+            rc=$(cat build/tvla_$m/gate.rc 2>/dev/null || echo 99)
+            case $rc in 0|2|3|4) ;; *) echo "harness failure ($rc) for $m"; exit 1 ;; esac
+            make evidence PROFILE=ci MASKED=$m TV=build/tvla_$m ATTEST=software || exit 1
+          done
+          make equiv || exit 1
+      - name: Collect
+        run: |
+          d=tvla-evidence-${GITHUB_REF_NAME}
+          mkdir -p $d out
+          for m in masked_v2 masked3; do
+            mkdir -p $d/$m && cp build/tvla_$m/*.json build/tvla_$m/summary.txt $d/$m/
+          done
+          cp build/area_*.txt build/equiv/equiv_mont_mul.txt $d/
+          tar czf out/$d.tar.gz $d
+      - uses: actions/upload-artifact@v4
+        with: { name: tvla, path: out/ }
+
+  publish:
+    needs: [bins, fpga, tvla]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with: { path: dl }
+      - name: SHA256SUMS
+        run: |
+          mkdir -p rel && find dl -type f -exec cp {} rel/ \;
+          (cd rel && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=docs/release-notes/${GITHUB_REF_NAME}.md
+          test -f "$notes"
+          gh release create "$GITHUB_REF_NAME" rel/* --title "ai-id-engine ${GITHUB_REF_NAME}" --notes-file "$notes" --verify-tag
