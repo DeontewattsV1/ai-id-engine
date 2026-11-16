@@ -8,5 +8,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y verilator
+      - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: "2026-11-15"
+          github-token: ${{ github.token }}
       - run: make lint

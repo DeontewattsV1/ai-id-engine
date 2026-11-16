@@ -1,39 +1,23 @@
-# What "operational" means for this repository
+# What "operational" means for this repository (v0.1.0)
 
-This repo is a **research reference implementation** of a DICE-style AI
-identity engine (see `docs/REMEDIATION.md`, status RESEARCH HOLD). It is not
-production-certified silicon. "Operational" is therefore defined as the
-integrated design and its software verifier working end to end, with every
-claim checked by an automated test against an independent implementation:
+This repo is a **working prototype** of a DICE-style AI identity engine and
+its host tooling. It is not certified silicon (see `LIMITATIONS.md`).
+"Operational" means every piece runs end to end and every claim is checked by
+an automated test against an independent implementation:
 
 | # | Criterion | How it is checked |
 |---|-----------|-------------------|
-| 1 | The full RTL (`id_engine_top` and every file in `rtl/`) elaborates and lints with zero `-Wall` warnings, in both the hardware build and the simulation build | `make lint` |
-| 2 | The integrated engine runs end to end in simulation: PCR extend, DICE CDI derivation, PCR-bound seal/unseal, fail-closed quoting and tamper zeroize, each compared bit-exactly with OpenSSL | `make sim` (35 checks) |
-| 3 | Arithmetic and hash units pass known-answer tests (SHA-256, HMAC-SHA256, Montgomery, mod-n, field inverse, BCH encoder) | `make math-oracle rtl-unit` |
-| 4 | The firmware register header and the RTL decoder agree | `make regmap` |
-| 5 | The quote verifier builds, verifies genuine quotes and rejects replayed, stale, tampered, mis-signed, untrusted-root, wrong-model, wrong-config and wrong-PCR quotes | `make verifier` (13 tests) and `cargo run -- demo` |
-| 6 | The Linux driver core compiles against real kernel headers | `make -C fw` (CI `driver` job) |
-| 7 | CI runs all of the above on every push and pull request and is green | `ci.yml`, `signoff.yml`, `arithmetic-reference.yml`, `Verilog Compiler.yml` |
-| 8 | The README run instructions are accurate | this file and README "Quick start" are exercised by CI commands |
+| 1 | All engine RTL lints with zero `-Wall` warnings in the hardware, simulation and fuse-UDS builds, plus both bus bridges | `make lint` |
+| 2 | The integrated engine runs end to end: boot ROM banner/glyphs, OTP, PCR extend, streaming + DMA measurement (16 padding edges, real model weights), DICE CDI/device ID, key ladder, seal, TRNG→DRBG, SE public key over SPI, two AIQ2 quotes verified with OpenSSL, SE failure, tamper zeroize, TRNG stuck-at, power-on tamper refusal | `make sim` (192 checks; 196 with `SIM_ARGS=+weights=FILE`) |
+| 3 | Unit KATs: SHA-256, HMAC-SHA256, HMAC-DRBG (Python SP 800-90A reference), TRNG health tests, AXI4-Lite and UART bridges, Montgomery, mod-n, inverse, BCH | `make rtl-unit` |
+| 4 | Firmware register header and RTL decoder / STATUS bits agree | `make regmap` |
+| 5 | The verifier accepts genuine software and RTL-produced hardware quotes and rejects replayed, stale, tampered, mis-signed, untrusted-root, wrong-model/config/PCR, tampered-device and wrong-lifecycle quotes | `make verifier` |
+| 6 | Host tools: HWID, activation codes, TPM/software attestation, birth certificate create/verify and negative cases | `make hwid`; CI runs TPM tests against swtpm and builds on Linux, macOS and Windows |
+| 7 | End-to-end demo on a real Hugging Face model | `make demo` |
+| 8 | FPGA flow synthesizes, places and routes for the ULX3S (ECP5-85F) | `make fpga` (CI `fpga` job) |
+| 9 | The Linux driver core compiles against real kernel headers | `make -C fw` |
+| 10 | CI runs all of the above and is green | `.github/workflows/*.yml` |
 
-## Explicitly out of scope (still blocked, see REMEDIATION.md)
-
-* **Hardware quote signing.** `quote_signer` stays fail-closed: `ecdsa_core`
-  can expose the signing key. The verifier is exercised with software-signed
-  quotes instead.
-* **Real PUF.** `rtl/sram_puf.v` is a placeholder. The hardware build outputs
-  no UDS (fail closed); only the simulation build (`AI_ID_SIM_PUF`) uses a
-  fixed, public test UDS.
-* **Seal confidentiality.** `seal_unit` models the PCR release policy; the
-  XOR wrap is not AES-GCM.
-* **Full-chip formal, fuzzing and a coverage threshold.** The `signoff`
-  workflow's gates are narrow: `make formal` proves only `gf_mult`,
-  `make cov` only requires non-empty coverage counters (the original 95 %
-  threshold is not met or enforced), and `make fuzz` is the PUF harness unit
-  test plus an exhaustive `gf_mult` simulation. The SVA in `formal/*.sv` for
-  the engine and fuzzy extractor is still not wired into any proof.
-* **TVLA on silicon, timing/area closure.** Not run.
-* **Streaming measurement engine, weight DMA, quote FIFO, OTP.** Not in RTL;
-  the driver returns `-EOPNOTSUPP`. `fw/attd.c` and `fw/measure_agent.c` are
-  design sketches and are not built.
+Out of scope and still open: real PUF, physical-board bring-up with a real
+secure element, AES-GCM sealing, side-channel evaluation, full-chip formal.
+See `LIMITATIONS.md`.

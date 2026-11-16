@@ -50,15 +50,17 @@ module sha256_compress(
         k[56]=32'h748f82ee; k[57]=32'h78a5636f; k[58]=32'h84c87814; k[59]=32'h8cc70208;
         k[60]=32'h90befffa; k[61]=32'ha4506ceb; k[62]=32'hbef9a3f7; k[63]=32'hc67178f2;
     end
-    reg [31:0] w[0:63];
+    // 16-word sliding message-schedule window: w[0] is always W_t, and
+    // w[15] receives W_{t+16} = s1(W_{t+14}) + W_{t+9} + s0(W_{t+1}) + W_t.
+    // No variable-index reads, so the schedule costs one adder chain.
+    reg [31:0] w[0:15];
     reg [31:0] a,b,c,d,e,f,g,h;
     reg [5:0] round;
     reg active;
     reg [255:0] hq;
     integer j;
-    wire [31:0] current_word = (round < 6'd16) ? w[round] :
-        (SS1(w[round-6'd2]) + w[round-6'd7] + SS0(w[round-6'd15]) + w[round-6'd16]);
-    wire [31:0] T1 = h + BS1(e) + ((e & f) ^ (~e & g)) + k[round] + current_word;
+    wire [31:0] w_next = SS1(w[14]) + w[9] + SS0(w[1]) + w[0];
+    wire [31:0] T1 = h + BS1(e) + ((e & f) ^ (~e & g)) + k[round] + w[0];
     wire [31:0] T2 = BS0(a) + ((a & b) ^ (a & c) ^ (b & c));
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -74,7 +76,8 @@ module sha256_compress(
                 hq<=h_in;
                 round<=0; busy<=1; active<=1;
             end else if (active) begin
-                w[round]<=current_word;
+                for(j=0;j<15;j=j+1) w[j]<=w[j+1];
+                w[15]<=w_next;
                 h<=g; g<=f; f<=e;
                 e<=d+T1; d<=c; c<=b; b<=a; a<=T1+T2;
                 if (round==6'd63) begin

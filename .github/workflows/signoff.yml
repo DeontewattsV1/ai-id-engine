@@ -14,6 +14,7 @@ jobs:
       - name: Setup Yosys and SymbiYosys from OSS CAD Suite
         uses: YosysHQ/setup-oss-cad-suite@v4
         with:
+          version: "2026-11-15"
           # built-in read-only workflow token; avoids anonymous API rate limits
           github-token: ${{ github.token }}
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev

@@ -1,5 +1,5 @@
-# Operational gates for the integrated design. See docs/OPERATIONAL.md.
-# These are functional gates only; they are NOT a security or tapeout signoff.
+# Operational gates for v0.1.0. See docs/OPERATIONAL.md.
+# Functional gates only; NOT a security or tapeout signoff (see LIMITATIONS.md).
 name: ci
 on:
   push:
@@ -8,16 +8,21 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  OSS_CAD_SUITE_VERSION: "2026-11-15"
 jobs:
   rtl:
-    name: RTL lint + end-to-end simulation
+    name: RTL lint + full-chip simulation + unit KATs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install HDL toolchain
-        run: sudo apt-get update && sudo apt-get install -y verilator iverilog libssl-dev
-      - run: verilator --version
-      - name: Lint (hardware build and simulation build, -Wall, zero warnings)
+      - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: ${{ env.OSS_CAD_SUITE_VERSION }}
+          github-token: ${{ github.token }}
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev python3-numpy
+      - run: verilator --version && iverilog -V | head -1
+      - name: Lint (hardware, simulation and fuse-UDS builds + bridges, -Wall, zero warnings)
         run: make lint
       - name: End-to-end id_engine_top simulation checked against OpenSSL
         run: make sim
@@ -43,6 +48,108 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: CLI demo (issue, verify, reject tampered and replayed quotes)
         run: cargo run --locked -q -- demo --out "$RUNNER_TEMP/demo"
+
+  hwid:
+    name: hwid + aiid (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: hwid
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - run: cargo --version
+      - name: Test (warnings are errors)
+        run: cargo test --locked
+        env:
+          RUSTFLAGS: -D warnings
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Smoke test the CLIs
+        run: |
+          cargo build --locked -q
+          ./target/debug/hwid show
+          ./target/debug/hwid challenge
+          ./target/debug/hwid attest --mode software --nonce 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff --out "$RUNNER_TEMP/att.json"
+          ./target/debug/hwid verify-attest --in "$RUNNER_TEMP/att.json" --nonce 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+          mkdir -p "$RUNNER_TEMP/m" && head -c 100000 /dev/urandom > "$RUNNER_TEMP/m/model.safetensors"
+          ./target/debug/aiid ca init --dir "$RUNNER_TEMP/ca"
+          ./target/debug/aiid cert create --weights "$RUNNER_TEMP/m" --ca "$RUNNER_TEMP/ca" --attest software --out "$RUNNER_TEMP/c.json" --svg "$RUNNER_TEMP/c.svg"
+          ./target/debug/aiid cert verify --cert "$RUNNER_TEMP/c.json" --ca "$RUNNER_TEMP/ca" --weights "$RUNNER_TEMP/m" --this-machine
+
+  tpm:
+    name: TPM 2.0 attestation against swtpm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt-get update && sudo apt-get install -y swtpm swtpm-tools tpm2-tools
+      - name: Start swtpm
+        run: |
+          mkdir -p "$RUNNER_TEMP/tpm"
+          swtpm socket --tpm2 --server type=tcp,port=2321 --ctrl type=tcp,port=2322 \
+            --tpmstate dir="$RUNNER_TEMP/tpm" --flags not-need-init,startup-clear --daemon
+          sleep 1
+          TPM2TOOLS_TCTI=swtpm:port=2321 tpm2_getcap properties-fixed | head -5
+      - name: Quote, verify, and certify with the TPM path
+        env:
+          TPM2TOOLS_TCTI: swtpm:port=2321
+        working-directory: hwid
+        run: |
+          cargo build --locked -q
+          N=$(openssl rand -hex 32)
+          ./target/debug/hwid attest --mode tpm --nonce $N --out "$RUNNER_TEMP/tpm.json"
+          ./target/debug/hwid verify-attest --in "$RUNNER_TEMP/tpm.json" --nonce $N | tee "$RUNNER_TEMP/v.txt"
+          grep -q "SIMULATED swtpm" "$RUNNER_TEMP/v.txt"
+          if ./target/debug/hwid verify-attest --in "$RUNNER_TEMP/tpm.json" --nonce $(openssl rand -hex 32); then exit 1; fi
+          mkdir -p "$RUNNER_TEMP/m" && head -c 100000 /dev/urandom > "$RUNNER_TEMP/m/model.bin"
+          ./target/debug/aiid ca init --dir "$RUNNER_TEMP/ca"
+          ./target/debug/aiid cert create --weights "$RUNNER_TEMP/m" --ca "$RUNNER_TEMP/ca" --attest tpm --out "$RUNNER_TEMP/c.json"
+          ./target/debug/aiid cert verify --cert "$RUNNER_TEMP/c.json" --ca "$RUNNER_TEMP/ca" --weights "$RUNNER_TEMP/m"
+          # a simulated TPM must not satisfy --require-tpm
+          if ./target/debug/aiid cert verify --cert "$RUNNER_TEMP/c.json" --ca "$RUNNER_TEMP/ca" --require-tpm; then exit 1; fi
+
+  demo:
+    name: make demo (RTL quote -> verifier -> birth certificate on bert-tiny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: ${{ env.OSS_CAD_SUITE_VERSION }}
+          github-token: ${{ github.token }}
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - run: make demo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-out
+          path: |
+            demo-out/*.json
+            demo-out/*.svg
+            demo-out/rtl_sim.log
+
+  fpga:
+    name: FPGA synth + place & route (ULX3S ECP5-85F)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: YosysHQ/setup-oss-cad-suite@v4
+        with:
+          version: ${{ env.OSS_CAD_SUITE_VERSION }}
+          github-token: ${{ github.token }}
+      - run: make -C fpga
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fpga-reports
+          path: |
+            fpga/build/summary.txt
+            fpga/build/utilization_ecp5.txt
+            fpga/build/nextpnr.log
+            fpga/build/nextpnr_report.json
 
   driver:
     name: Linux driver core builds against kernel headers

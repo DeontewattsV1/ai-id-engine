@@ -55,8 +55,9 @@ module pcr_bank (
         end
     end
 
+    integer m;
     always @(*) begin
         digest_out = pcr[sel];
-        for (i = 0; i < 16; i = i + 1) flat[255 + 256*i -: 256] = pcr[i];
+        for (m = 0; m < 16; m = m + 1) flat[255 + 256*m -: 256] = pcr[m];
     end
 endmodule

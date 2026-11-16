@@ -23,7 +23,13 @@ fn demo_then_verify_via_files() {
     let p = |n: &str| dir.join(n).display().to_string();
 
     let ok = bin()
-        .args(["verify", "--quote", &p("quote.json"), "--chain", &p("chain.json")])
+        .args([
+            "verify",
+            "--quote",
+            &p("quote.json"),
+            "--chain",
+            &p("chain.json"),
+        ])
         .args(["--policy", &p("policy.json"), "--nonce", &nonce])
         .output()
         .unwrap();
@@ -36,7 +42,13 @@ fn demo_then_verify_via_files() {
     v["timestamp"] = serde_json::json!(v["timestamp"].as_u64().unwrap() + 1);
     std::fs::write(dir.join("bad.json"), v.to_string()).unwrap();
     let bad = bin()
-        .args(["verify", "--quote", &p("bad.json"), "--chain", &p("chain.json")])
+        .args([
+            "verify",
+            "--quote",
+            &p("bad.json"),
+            "--chain",
+            &p("chain.json"),
+        ])
         .args(["--policy", &p("policy.json"), "--nonce", &nonce])
         .output()
         .unwrap();
