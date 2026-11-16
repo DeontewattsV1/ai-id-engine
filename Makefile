@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 VERILATOR ?= verilator
-RTL := $(wildcard rtl/*.v)
+RTL := $(sort $(wildcard rtl/*.v))
 
 all: sim
 
-obj_dir/Vid_engine_top: tb/tb_id_engine.cpp $(RTL)
-	$(VERILATOR) --cc --exe --build --timing \
+obj_dir/Vid_engine_top: tb/tb_id_engine.cpp tb/ecdsa_dpi.cpp $(RTL)
+	$(VERILATOR) --cc --exe --build --timing -Irtl \
 	  -Wno-fatal -Wno-lint -Wno-UNOPTFLAT \
 	  --top-module id_engine_top \
 	  -CFLAGS "-O2 -DVERILATOR" -LDFLAGS "-lcrypto" \
@@ -23,12 +23,13 @@ cov:
 	./obj_dir/Vid_engine_top && verilator_coverage --annotate cov/ logs/*.dat
 
 formal:
-	sby -f formal/sby.toml
-	sby -f formal/sby_cover.toml
+	sby -f formal/gf_mult.sby
 
 fuzz:
-	python3 test/gen_vectors.py --n 5000 --out test/vectors/ && \
-	python3 test/run_fuzz.py
+	python3 test/puf_characterize_test.py
+	$(VERILATOR) --cc --exe --build --top-module gf_mult -Wno-fatal \
+	  --Mdir obj_dir/gf_mult $(abspath rtl/gf_mult.v tb/tb_gf_mult.cpp) -o Vgf_mult
+	./obj_dir/gf_mult/Vgf_mult
 
 .PHONY: all sim lint cov formal fuzz
 

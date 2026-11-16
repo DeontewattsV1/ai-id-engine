@@ -1,0 +1,14 @@
+[options]
+mode prove
+depth 1
+
+[engines]
+smtbmc z3
+
+[script]
+read -formal -sv gf_mult.v gf_mult_formal.sv
+prep -top gf_mult_formal
+
+[files]
+rtl/gf_mult.v
+formal/gf_mult_formal.sv

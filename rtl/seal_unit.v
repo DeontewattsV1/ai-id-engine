@@ -24,9 +24,9 @@ module seal_unit (
         if (!rst_n) begin
             state <= 0; ok <= 0; wrapped <= 0; secret_out <= 0;
         end else begin
-            ok <= 0;
             case (state)
                 0: if (op == 1) begin
+                       ok <= 0;
                        policy_digest = 256'b0;
                        for (i = 0; i < 16; i = i + 1)
                            if (policy[i]) policy_digest = policy_digest ^
@@ -38,7 +38,8 @@ module seal_unit (
                        for (i = 0; i < 16; i = i + 1)
                            if (policy[i]) expected_digest = expected_digest ^
                                pcr_flat[255 + 256*i -: 256];
-                       if ((wrapped ^ expected_digest) != 256'b0) begin
+                       if (expected_digest == policy_digest &&
+                           (wrapped ^ expected_digest) != 256'b0) begin
                            secret_out <= wrapped ^ expected_digest;
                            ok <= 1;
                        end else ok <= 0;
