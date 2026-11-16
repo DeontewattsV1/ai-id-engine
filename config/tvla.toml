@@ -1,0 +1,48 @@
+# TVLA profiles (ADR-0001). traces = traces PER GROUP. The threshold is never
+# typed here; it is computed from `samples` and `alpha` (tools/threshold.py):
+# M=4000, alpha=0.05 -> 4.37 for every profile, since M is the same.
+# tau = RC low-pass time constant of the simulated measurement chain, in
+# clock cycles. noise_pj = additive Gaussian noise per sample (0 = the
+# noiseless worst case for the evaluator).
+
+[ci]
+traces = 4000
+alpha = 0.05
+samples = 4000
+require_null = true
+pois = 64
+positive_traces = 1000
+tau = 0.5
+noise_pj = 0.0
+
+[local]
+traces = 20000
+alpha = 0.05
+samples = 4000
+require_null = true
+pois = 64
+positive_traces = 2000
+tau = 0.5
+noise_pj = 0.0
+
+[signoff]
+# ~16 GB of float32 traces per run; streaming statistics, not RAM-bound.
+traces = 1000000
+alpha = 0.05
+samples = 4000
+require_null = true
+pois = 64
+positive_traces = 2000
+tau = 0.5
+noise_pj = 0.0
+
+[smoke]
+# Plumbing check only (make tvla-smoke). Too few traces to mean anything.
+traces = 300
+alpha = 0.05
+samples = 4000
+require_null = true
+pois = 16
+positive_traces = 300
+tau = 0.5
+noise_pj = 0.0
