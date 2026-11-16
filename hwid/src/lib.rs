@@ -9,6 +9,7 @@
 //! * [`envinfo`] runtime environment digest
 //! * [`cert`]    AI Birth Certificate: in-toto statement in a DSSE envelope
 //! * [`render`]  SVG rendering of a certificate
+//! * [`evidence`] signed pre-silicon evidence report (`aiid-evidence/v1`)
 //!
 //! Identification and attestation only: nothing here alters, hides or
 //! spoofs hardware identifiers.
@@ -19,6 +20,7 @@ pub mod cert;
 pub mod cli;
 pub mod code;
 pub mod envinfo;
+pub mod evidence;
 pub mod hwid;
 pub mod license;
 pub mod render;
@@ -84,6 +86,10 @@ pub fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()>
         std::fs::write(path, data)
     }
 }
+
+/// Serialises unit tests that change process-wide environment (AIID_HOME).
+#[cfg(test)]
+pub(crate) static TEST_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(test)]
 mod tests {

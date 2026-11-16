@@ -3,7 +3,7 @@
 
 use ai_id_host::cert::{self, CreateOpts, Envelope, VerifyOpts};
 use ai_id_host::cli::{flag, opt, read, req};
-use ai_id_host::{ca, hwid, now_secs, render};
+use ai_id_host::{ca, evidence, hwid, now_secs, render};
 use ai_id_verifier::{Cert, HwQuote};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -21,9 +21,14 @@ USAGE:
         [--max-age SECS] [--this-machine] [--require-tpm] [--svg OUT.svg]
   aiid cert show --cert CERT.json
   aiid cert render --cert CERT.json --out OUT.svg [--ca DIR | --root HEX]
+  aiid evidence create --tvla-summary SUMMARY.json --inputs INPUTS.json --out REPORT.json
+        [--attest auto|tpm|software] [--salt S]
+  aiid evidence verify --report REPORT.json [--pin-soft-key HEX] [--require-hardware]
 
 Weights are streamed through SHA-256 (file, or every weight file in a
-directory). Certificates are DSSE envelopes around in-toto Statement v1.";
+directory). Certificates are DSSE envelopes around in-toto Statement v1.
+Evidence reports (aiid-evidence/v1) are pre-silicon assessment records,
+signed through the same TPM/software attestation; see docs/EVIDENCE.md.";
 
 fn load_env(p: &str) -> Result<Envelope, String> {
     serde_json::from_str(&read(p)?).map_err(|e| format!("{p}: {e}"))
@@ -238,6 +243,39 @@ fn run(a: &[String]) -> Result<(), String> {
                 "UNVERIFIED"
             };
             write_svg(&env, &req(a, "--out")?, status)
+        }
+        ("evidence", "create") => {
+            let out = req(a, "--out")?;
+            let sum: serde_json::Value = serde_json::from_str(&read(&req(a, "--tvla-summary")?)?)
+                .map_err(|e| format!("--tvla-summary: {e}"))?;
+            let inp: serde_json::Value = serde_json::from_str(&read(&req(a, "--inputs")?)?)
+                .map_err(|e| format!("--inputs: {e}"))?;
+            let salt = opt(a, "--salt").unwrap_or_else(|| hwid::DEFAULT_SALT.into());
+            let hw = hwid::this_machine(&salt, false)?;
+            let r = evidence::create(
+                evidence::from_tvla(&sum, &inp, &hw.hwid)?,
+                &opt(a, "--attest").unwrap_or_else(|| "auto".into()),
+                now_secs(),
+            )?;
+            let js = serde_json::to_string_pretty(&r).map_err(|e| e.to_string())?;
+            std::fs::write(&out, js + "\n").map_err(|e| format!("{out}: {e}"))?;
+            eprintln!(
+                "wrote {out}: body sha256 {}, provenance root {}",
+                r.body_sha256, r.body.fields[0].value["root"]
+            );
+            Ok(())
+        }
+        ("evidence", "verify") => {
+            let p = req(a, "--report")?;
+            let r: evidence::Report =
+                serde_json::from_str(&read(&p)?).map_err(|e| format!("{p}: {e}"))?;
+            let pin = opt(a, "--pin-soft-key");
+            let d = evidence::verify(&r, pin.as_deref())?;
+            if flag(a, "--require-hardware") && r.body.fields[0].value["root"] != "hardware" {
+                return Err(format!("{d}\nprovenance is not hardware-rooted"));
+            }
+            println!("{d}");
+            Ok(())
         }
         ("-h" | "--help" | "help" | "", _) => {
             println!("{USAGE}");

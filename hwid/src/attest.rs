@@ -131,6 +131,27 @@ fn tpm_vendor(dir: &Path) -> (String, bool) {
     (manu, sim)
 }
 
+/// What a later `attest(.., mode)` call will be backed by, from
+/// `tpm2_getcap properties-fixed` (TPM2_GetCapability): `(kind,
+/// manufacturer, simulated)`. Used to put the provenance into a report body
+/// *before* that body's hash is quoted, so the provenance is covered by the
+/// signature. A host that lies to tpm2-tools can still lie here; this is
+/// bound by the AK signature, not vouched for by an EK certificate chain.
+pub fn probe_provenance(mode: &str) -> Result<(String, String, bool), String> {
+    let want_tpm = match mode {
+        "software" => false,
+        "tpm" => true,
+        _ => tpm_available(),
+    };
+    if !want_tpm {
+        return Ok(("software-fallback".into(), String::new(), false));
+    }
+    let dir = tmpdir()?;
+    let (manu, sim) = tpm_vendor(&dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(("tpm2-quote".into(), manu, sim))
+}
+
 fn flush(dir: &Path) {
     let _ = tool("tpm2_flushcontext", &["-t"], dir);
     let _ = tool("tpm2_flushcontext", &["-s"], dir);
@@ -566,6 +587,7 @@ mod tests {
 
     #[test]
     fn software_fallback_round_trip_and_replay() {
+        let _g = crate::TEST_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("aiid-test-{}", std::process::id()));
         std::env::set_var("AIID_HOME", &dir);
         let nonce = [3u8; 32];

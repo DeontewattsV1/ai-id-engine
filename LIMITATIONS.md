@@ -118,6 +118,13 @@ CAVP, Common Criteria, or an external security review.
   about the write path; SHA-256 correctness comes from the NIST KATs.
 * HMAC RFC 4231 TC6/TC7 (131-byte keys) are outside the 256-bit key port.
   Longer keys must be pre-hashed by the caller.
+* **Netlist equivalence is partial.** `make equiv` proves the plain
+  `mont_mul` output, operand registers and FSM against the sky130 netlist,
+  but not the `t` accumulator or `bit_index`, and does not cover the masked
+  multipliers yet (docs/EQUIVALENCE.md).
+* **Evidence-report provenance is host-reported.** It is bound under the
+  TPM AK signature but not checked against an EK certificate chain; CI
+  reports use the software key (docs/EVIDENCE.md).
 * **Coded fault detection is opt-in and simulation-only evidence**
   (`AI_ID_FAULT_DETECT`, docs/FAULT-DETECTION.md). It covers PCR storage and
   the PCR controller in `id_engine_top`; the other blocks are not coded.
