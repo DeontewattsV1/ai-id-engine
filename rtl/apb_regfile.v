@@ -44,8 +44,6 @@ module apb_regfile (
     input  wire [255:0] i_pcr_read, i_cdi_out, i_unseal_out,
     input  wire [15:0]  i_quote_len,
     input  wire [7:0]   i_tamper,
-    input  wire [15:0]  i_quote_len,
-    input  wire [7:0]   i_quote_data,
     input  wire [15:0]  i_status
 );
     reg [2:0]  wcnt;
@@ -65,45 +63,35 @@ module apb_regfile (
             o_pcr_extend <= 0; o_quote_start <= 0;
             o_cdi_start <= 0; o_seal_op <= 0;
 
-            if (psel && penable && pwrite) begin
-                if (paddr != 12'h024 && paddr != 12'h060 &&
-                    paddr != 12'h070 && paddr != 12'h080 &&
-                    paddr != 12'h0C4)
-                    wcnt <= 0;
+            if (access) begin
+                last_addr <= paddr;
+                wcnt      <= idx + 3'd1;
+            end
+
+            if (access && pwrite) begin
                 case (paddr)
                     12'h020: o_pcr_sel <= pwdata[3:0];
                     12'h024: o_pcr_data[255 - 32*idx -: 32] <= pwdata;
                     12'h02C: o_pcr_extend <= pwdata[0];
-                    12'h060: begin o_cdi_label[127 - 32*wcnt[1:0] -: 32] <= pwdata;
-                                  wcnt <= (wcnt[1:0] == 2'b11) ? 0 : wcnt + 1; end
-                    12'h070: begin o_cdi_parent[255 - 32*wcnt -: 32] <= pwdata;
-                                  wcnt <= wcnt + 1; end
-                    12'h080: begin o_nonce[255 - 32*wcnt -: 32] <= pwdata;
-                                  wcnt <= wcnt + 1; end
+                    12'h060: o_cdi_label[127 - 32*idx4 -: 32] <= pwdata;
+                    12'h06C: o_cdi_start <= pwdata[0];
+                    12'h080: o_nonce[255 - 32*idx -: 32] <= pwdata;
                     12'h0A0: o_quote_start <= pwdata[0];
                     12'h0C0: o_seal_policy <= pwdata[15:0];
-                    12'h0C4: begin o_seal_in[255 - 32*wcnt -: 32] <= pwdata;
-                                  wcnt <= wcnt + 1; end
+                    12'h0C4: o_seal_in[255 - 32*idx -: 32] <= pwdata;
                     12'h0CC: o_seal_op <= pwdata[1:0];
                     default: ;
                 endcase
             end
 
-            if (psel && penable && !pwrite) begin
-                if (paddr != 12'h028 && paddr != 12'h070 &&
-                    paddr != 12'h0C8)
-                    wcnt <= 0;
+            if (access && !pwrite) begin
                 case (paddr)
                     12'h000: prdata <= 32'h49444531;
                     12'h004: prdata <= {16'b0, i_status};
-                    12'h028: begin prdata <= i_pcr_read[255 - 32*wcnt -: 32];
-                                  wcnt <= wcnt + 1; end
-                    12'h070: begin prdata <= i_cdi_out[255 - 32*wcnt -: 32];
-                                  wcnt <= wcnt + 1; end
+                    12'h028: prdata <= i_pcr_read[255 - 32*idx -: 32];
+                    12'h070: prdata <= i_cdi_out[255 - 32*idx -: 32];
                     12'h0A4: prdata <= {16'b0, i_quote_len};
-                    12'h0A8: prdata <= {24'b0, i_quote_data};
-                    12'h0C8: begin prdata <= i_unseal_out[255 - 32*wcnt -: 32];
-                                  wcnt <= wcnt + 1; end
+                    12'h0C8: prdata <= i_unseal_out[255 - 32*idx -: 32];
                     12'h0F0: prdata <= {24'b0, i_tamper};
                     default: prdata <= 32'hDEADBEEF;
                 endcase

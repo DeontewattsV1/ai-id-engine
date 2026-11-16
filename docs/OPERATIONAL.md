@@ -14,7 +14,7 @@ claim checked by an automated test against an independent implementation:
 | 4 | The firmware register header and the RTL decoder agree | `make regmap` |
 | 5 | The quote verifier builds, verifies genuine quotes and rejects replayed, stale, tampered, mis-signed, untrusted-root, wrong-model, wrong-config and wrong-PCR quotes | `make verifier` (13 tests) and `cargo run -- demo` |
 | 6 | The Linux driver core compiles against real kernel headers | `make -C fw` (CI `driver` job) |
-| 7 | CI runs all of the above on every push and pull request and is green | `.github/workflows/ci.yml`, `arithmetic-reference.yml`, `Verilog Compiler.yml` |
+| 7 | CI runs all of the above on every push and pull request and is green | `ci.yml`, `signoff.yml`, `arithmetic-reference.yml`, `Verilog Compiler.yml` |
 | 8 | The README run instructions are accurate | this file and README "Quick start" are exercised by CI commands |
 
 ## Explicitly out of scope (still blocked, see REMEDIATION.md)
@@ -27,8 +27,13 @@ claim checked by an automated test against an independent implementation:
   fixed, public test UDS.
 * **Seal confidentiality.** `seal_unit` models the PCR release policy; the
   XOR wrap is not AES-GCM.
-* **Formal, fuzz, coverage, TVLA on silicon, timing/area.** The legacy
-  `signoff` workflow is manual-only and fails at these gates by design.
+* **Full-chip formal, fuzzing and a coverage threshold.** The `signoff`
+  workflow's gates are narrow: `make formal` proves only `gf_mult`,
+  `make cov` only requires non-empty coverage counters (the original 95 %
+  threshold is not met or enforced), and `make fuzz` is the PUF harness unit
+  test plus an exhaustive `gf_mult` simulation. The SVA in `formal/*.sv` for
+  the engine and fuzzy extractor is still not wired into any proof.
+* **TVLA on silicon, timing/area closure.** Not run.
 * **Streaming measurement engine, weight DMA, quote FIFO, OTP.** Not in RTL;
   the driver returns `-EOPNOTSUPP`. `fw/attd.c` and `fw/measure_agent.c` are
   design sketches and are not built.

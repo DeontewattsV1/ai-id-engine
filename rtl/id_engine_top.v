@@ -30,20 +30,16 @@ module id_engine_top (
     wire         uds_valid;
     wire [255:0] pcr_r, unseal_out;
     wire [4095:0] pcr_flat;
-    wire         pcr_ext, pcr_busy, quote_start, cdi_start;
+    wire         pcr_ext, pcr_busy, quote_start, cdi_start, cdi_valid, cdi_busy;
     wire [3:0]   pcr_sel;
     wire [255:0] pcr_wdata, nonce, seal_in;
     wire [127:0] cdi_label;
     wire [15:0]  seal_policy, quote_len;
     wire [1:0]   seal_op;
     wire [7:0]   tamper_sticky;
-    wire         zeroize;
-    wire         seal_ok;
-    wire [7:0]   quote_data;
-    wire [15:0]  quote_len;
-    wire         quote_valid, quote_err;
-    wire [15:0]  status = {11'b0, seal_ok, quote_done, 1'b0, pcr_busy, 1'b1};
-    wire         quote_done;
+    wire         zeroize, quote_done, quote_err, unseal_ok;
+    wire [15:0]  status = {8'b0, uds_valid, cdi_busy, quote_err, unseal_ok,
+                           quote_done, cdi_valid, pcr_busy, 1'b1};
 
     // Reserved interfaces: tied off, never leak state.
     assign dma_ready = 1'b0;
@@ -85,16 +81,17 @@ module id_engine_top (
 
     /* verilator lint_off PINCONNECTEMPTY */
     seal_unit u_seal (
-        .clk(pclk), .rst_n(presetn), .op(seal_op), .policy(seal_policy),
-        .pcr_flat(pcr_flat), .secret_in(seal_in),
-        .secret_out(unseal_out), .ok(seal_ok), .wrapped()
+        .clk(pclk), .rst_n(presetn), .zeroize(zeroize), .op(seal_op),
+        .policy(seal_policy), .pcr_flat(pcr_flat), .seal_key(cdi),
+        .secret_in(seal_in), .secret_out(unseal_out), .ok(unseal_ok),
+        .wrapped()
     );
 
     quote_signer u_q (
         .clk(pclk), .rst_n(presetn), .sign_start(quote_start),
         .alias_key(alias_key), .nonce(nonce), .pcr_flat(pcr_flat),
         .model_digest(pcr_r), .config_digest(256'b0), .timestamp(64'b0),
-        .fifo_data(quote_data), .fifo_valid(quote_valid), .quote_len(quote_len),
+        .fifo_data(), .fifo_valid(), .quote_len(quote_len),
         .done(quote_done), .err(quote_err)
     );
     /* verilator lint_on PINCONNECTEMPTY */
@@ -119,8 +116,7 @@ module id_engine_top (
         .o_cdi_start(cdi_start),
         .o_cdi_label(cdi_label), .o_seal_policy(seal_policy),
         .o_seal_in(seal_in), .o_seal_op(seal_op),
-        .i_pcr_read(pcr_r), .i_cdi_out(cdi_out), .i_unseal_out(unseal_out),
-        .i_tamper(tamper_sticky), .i_quote_len(quote_len),
-        .i_quote_data(quote_data), .i_status(status)
+        .i_pcr_read(pcr_r), .i_cdi_out(cdi_dbg), .i_unseal_out(unseal_out),
+        .i_quote_len(quote_len), .i_tamper(tamper_sticky), .i_status(status)
     );
 endmodule
