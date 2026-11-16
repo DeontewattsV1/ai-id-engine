@@ -41,7 +41,15 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, String> {
 
 fn cmd_verify(args: &[String]) -> Result<(), String> {
     let need = |n: &str| arg(args, n).ok_or_else(|| format!("missing {n}"));
-    let quote: Quote = read_json(&need("--quote")?)?;
+    let quote_path = need("--quote")?;
+    // An AIQ2 hardware quote also parses as a software `Quote` (serde
+    // ignores the extra fields) and then fails with a misleading
+    // "signature invalid". Name the right subcommand instead.
+    let raw: serde_json::Value = read_json(&quote_path)?;
+    if raw.get("format").and_then(|f| f.as_str()) == Some("AIQ2") {
+        return Err("AIQ2 hardware quote: verify it with `verify-hw`".into());
+    }
+    let quote: Quote = serde_json::from_value(raw).map_err(|e| format!("{quote_path}: {e}"))?;
     let chain: Vec<Cert> = read_json(&need("--chain")?)?;
     let policy: Policy = read_json(&need("--policy")?)?;
     let nonce = hex::decode(need("--nonce")?).map_err(|e| format!("--nonce: {e}"))?;

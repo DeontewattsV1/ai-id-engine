@@ -106,6 +106,21 @@ ai-id-verifier verify-hw --quote engine_quote.json --chain engine_chain.json \
                          --policy hw_policy.json --nonce <hex>
 ```
 
+AIQ2 quotes from the engine are checked with `verify-hw`. Plain `verify` is
+for the software-signed quotes from `ai-id-verifier demo` and turns AIQ2
+quotes away. The verifier rejects quotes older than the policy's skew window
+(600 s in the samples), so to check a saved quote later, pass the time it
+was made: `--now` with the quote's `timestamp`. For the sample files attached
+to a release:
+
+```sh
+ai-id-verifier verify-hw --quote sample-engine-quote.json \
+  --chain sample-engine-chain.json --policy sample-hw-policy.json \
+  --nonce "$(jq -r .nonce sample-engine-quote.json)" \
+  --now   "$(jq -r .timestamp sample-engine-quote.json)"
+# VERIFIED hardware quote: device 9f49a8182594c76d rev A1 counter 1 model dab2c2bddcfb48ea
+```
+
 `make demo` writes all of these files to `demo-out/`. No API keys or secrets
 are needed for anything in this repository; every key is generated at run
 time and the demo CA is TEST-ONLY.
