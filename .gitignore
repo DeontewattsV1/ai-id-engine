@@ -17,3 +17,4 @@ fpga/build/
 release/
 formal/*/
 !formal/Security-specific
+test/masked_vectors.txt

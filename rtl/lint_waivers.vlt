@@ -6,3 +6,6 @@ lint_off -rule PINCONNECTEMPTY -file "*fuzzy_extract.v"
 lint_off -rule UNUSEDPARAM    -file "*mont_params.vh"
 // `unused_ok` is the standard idiom for intentionally ignored inputs.
 lint_off -rule UNUSEDSIGNAL   -file "*" -match "*unused_ok*"
+// mont_mul: final subtraction result is 258-bit; only [255:0] is the output
+// (t < 2n guarantees bits 257:256 are zero after the subtract).
+lint_off -rule UNUSEDSIGNAL   -file "*mont_mul.v" -match "*'reduced'*"
