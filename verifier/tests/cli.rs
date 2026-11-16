@@ -59,3 +59,28 @@ fn demo_then_verify_via_files() {
     assert_eq!(usage.status.code(), Some(2));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn verify_points_aiq2_quotes_at_verify_hw() {
+    // `verify` is for software-signed quotes; an AIQ2 hardware quote must be
+    // turned away with a pointer to `verify-hw`, not "signature invalid".
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/rtl_aiq2_quote.json"
+    );
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(fixture).unwrap()).unwrap();
+    let path = std::env::temp_dir().join(format!("ai-id-aiq2-{}.json", std::process::id()));
+    std::fs::write(&path, v["quote"].to_string()).unwrap();
+    let q = path.to_str().unwrap();
+    let out = bin()
+        .args(["verify", "--quote", q, "--chain", q, "--policy", q])
+        .args(["--nonce", "00"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.starts_with("REJECTED"), "{stdout}");
+    assert!(stdout.contains("verify-hw"), "{stdout}");
+    let _ = std::fs::remove_file(&path);
+}
