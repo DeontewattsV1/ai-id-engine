@@ -1,0 +1,25 @@
+# pcr_bank built with AI_ID_FAULT_DETECT (SEC-DED PCR words, HD3 controller
+# codes): once the detector is armed, the controller code is always legal in
+# fault-free runs. The extend-only property is proven on the uncoded build
+# (pcr_bank.sby); an extend-only proof through all 128 decoders did not finish
+# in 20+ minutes, so the coded words are covered by tb/tb_pcr_bank_fd.sv.
+# The SHA-256 core is cut out, as in pcr_bank.sby.
+[options]
+mode prove
+timeout 1200
+depth 4
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DAI_ID_FAULT_DETECT -I. sha256_compress.v secded39_dec.v pcr_bank.v
+prep -top pcr_bank
+cutpoint pcr_bank/u_h
+prep -top pcr_bank
+
+[files]
+rtl/sha256_compress.v
+rtl/secded39_fn.vh
+rtl/secded39_dec.v
+rtl/pcr_bank.v

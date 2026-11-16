@@ -53,7 +53,8 @@ want = {"1'b1": "IE_ST_READY", "pcr_busy": "IE_ST_PCR_BUSY", "cdi_valid": "IE_ST
         "quote_busy": "IE_ST_QUOTE_BUSY", "m_busy": "IE_ST_MEAS_BUSY", "m_valid_dig": "IE_ST_MEAS_VALID",
         "keys_ready": "IE_ST_KEYS_READY", "rng_have": "IE_ST_RNG_READY", "trng_fail": "IE_ST_TRNG_FAIL",
         "pub_valid": "IE_ST_SE_PUB_VALID", "zeroized": "IE_ST_ZEROIZED", "otp_prog_err": "IE_ST_OTP_PROG_ERR",
-        "mesh_breach": "IE_ST_MESH_BREACH"}
+        "mesh_breach": "IE_ST_MESH_BREACH", "fd_alarm": "IE_ST_FAULT_ALARM",
+        "fd_sec": "IE_ST_FAULT_CORR"}
 if len(bitlist) != 32:
     errors.append(f"status is {len(bitlist)} bits, expected 32")
 fields = [b for b in bitlist if b]

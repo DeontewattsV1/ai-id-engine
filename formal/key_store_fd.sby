@@ -4,6 +4,7 @@
 # purpose to show the detectors fire.
 [options]
 mode prove
+timeout 1200
 depth 6
 
 [engines]

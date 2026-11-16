@@ -34,8 +34,13 @@ jobs:
         run: make kat
       - name: Masked Montgomery RTL (v2 2-share, 3-share, wrapper) + TVLA statistics unit tests
         run: make tvla-test
+      - name: Coded fault detection (bit-flip injection; pcr_bank + full chip with AI_ID_FAULT_DETECT)
+        run: make fault-test
       - name: Formal (gf_mult, OTP fuse semantics, PCR extend-only)
         run: make formal-all
+      - name: Formal, fault detection (fault alarm, key store, key non-interference, PCR controller codes)
+        timeout-minutes: 60
+        run: make formal-fd
 
   tvla:
     name: TVLA (sky130 gate-level, profile ci, 4000 traces/group, gate 4.37)

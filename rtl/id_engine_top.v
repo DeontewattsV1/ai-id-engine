@@ -52,7 +52,7 @@ module id_engine_top #(
     wire         uds_valid, cdi_valid, cdi_busy;
     wire [255:0] pcr_r, unseal_out;
     wire [4095:0] pcr_flat;
-    wire         pcr_busy;
+    wire         pcr_busy, pcr_fault, fd_sec;
     wire [3:0]   pcr_sel;
     wire [255:0] pcr_wdata, nonce, cfg, seal_in;
     wire         apb_pcr_ext, quote_start, pub_start, cdi_start;
@@ -89,9 +89,27 @@ module id_engine_top #(
     wire mesh_breach;
     tamper_mesh u_mesh (.clk(pclk), .rst_n(presetn), .mesh_out(mesh_out),
                         .mesh_in(mesh_in), .breach(mesh_breach));
+    wire tamper_zeroize, fd_zeroize;
     tamper_ctrl u_tamper (.clk(pclk), .rst_n(presetn),
         .sensors(tamper_sensors | {7'b0, mesh_breach}),
-        .clear(zeroize_clear), .sticky(tamper_sticky), .zeroize(zeroize));
+        .clear(zeroize_clear), .sticky(tamper_sticky), .zeroize(tamper_zeroize));
+    // Coded fault detection (docs/FAULT-DETECTION.md). A double-bit PCR word
+    // upset or an illegal PCR-controller code sets a duplicated, sticky alarm
+    // that only power-on clears; while it is set, zeroize is held high, so
+    // every secret-holding block stays wiped. Detection, not side-channel
+    // hardening. Without the define the alarm and its status bits are 0.
+    wire fd_alarm;
+`ifdef AI_ID_FAULT_DETECT
+    wire [1:0] fd_alarm_pair;
+    fault_alarm #(.N(1)) u_falarm (.clk(pclk), .fault(pcr_fault),
+        .zeroize(fd_zeroize), .alarm(fd_alarm_pair));
+    assign fd_alarm = |fd_alarm_pair;
+`else
+    wire unused_ok_fd = &{1'b0, pcr_fault};
+    assign fd_zeroize = 1'b0;
+    assign fd_alarm   = 1'b0;
+`endif
+    assign zeroize = tamper_zeroize | fd_zeroize;
     reg zeroized;
     always @(posedge pclk or negedge presetn)
         if (!presetn) zeroized <= 0; else if (zeroize) zeroized <= 1;
@@ -235,7 +253,8 @@ module id_engine_top #(
         .extend((apb_pcr_ext && !quote_busy) || meas_ext),
         .sel(meas_ext ? m_pcr : pcr_sel),
         .digest_in(meas_ext ? m_digest : pcr_wdata),
-        .digest_out(pcr_r), .flat(pcr_flat), .busy(pcr_busy));
+        .digest_out(pcr_r), .flat(pcr_flat), .busy(pcr_busy),
+        .fault(pcr_fault), .fd_sec(fd_sec));
 
     // ------------------------------------------------------------ sealing
     /* verilator lint_off PINCONNECTEMPTY */
@@ -291,7 +310,7 @@ module id_engine_top #(
     wire [255:0] cdi_dbg = 256'b0;   // CDI never leaves the engine
 `endif
 
-    wire [31:0] status = {8'b0, q_code, 2'b0, mesh_breach, otp_prog_err,
+    wire [31:0] status = {6'b0, fd_sec, fd_alarm, q_code, 2'b0, mesh_breach, otp_prog_err,
                           zeroized, pub_valid, trng_fail, rng_have,
                           keys_ready, m_valid_dig, m_busy, quote_busy,
                           uds_valid, cdi_busy, q_err, unseal_ok,

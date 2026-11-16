@@ -26,6 +26,9 @@ lint:
 	$(VERILATOR) --lint-only -Wall -Irtl $(VLT) $(RTL) --top-module id_engine_top
 	$(VERILATOR) --lint-only -Wall -Irtl $(SIM_DEFS) $(VLT) $(RTL) --top-module id_engine_top
 	$(VERILATOR) --lint-only -Wall -Irtl +define+AI_ID_FUSE_UDS $(VLT) $(RTL) --top-module id_engine_top
+	$(VERILATOR) --lint-only -Wall -Irtl +define+AI_ID_FAULT_DETECT $(VLT) $(RTL) --top-module id_engine_top
+	$(VERILATOR) --lint-only -Wall -Irtl $(SIM_DEFS) +define+AI_ID_FAULT_DETECT $(VLT) $(RTL) --top-module id_engine_top
+	for m in fault_alarm key_store_fd mont_mul_rc; do $(VERILATOR) --lint-only -Wall -Irtl $(VLT) $(RTL) --top-module $$m || exit 1; done
 	$(VERILATOR) --lint-only -Wall -Irtl $(VLT) rtl/axil_to_apb.v --top-module axil_to_apb
 	$(VERILATOR) --lint-only -Wall -Irtl $(VLT) rtl/uart_apb_bridge.v --top-module uart_apb_bridge
 
@@ -134,7 +137,15 @@ formal-all: formal
 	sby -f formal/otp_fuses.sby
 	sby -f formal/pcr_bank.sby
 
-.PHONY: kat kat-rtl formal-all
+# Fault-detection proofs (docs/FAULT-DETECTION.md). Each .sby has a 20 min
+# timeout so a stalled solver fails with the proof's name and time.
+formal-fd:
+	@for p in fault_alarm key_store_fd key_store_nonint pcr_bank_fd; do \
+	  t0=$$(date +%s); sby -f formal/$$p.sby > /dev/null; rc=$$?; \
+	  echo "formal $$p: $$(grep -h 'DONE' formal/$$p/logfile.txt) in $$(( $$(date +%s) - t0 ))s"; \
+	  if [ $$rc -ne 0 ]; then tail -20 formal/$$p/logfile.txt; exit 1; fi; done
+
+.PHONY: kat kat-rtl formal-all formal-fd
 
 # ---------------------------------------------------------------------------
 # TVLA: gate-level, sky130-mapped leakage evidence for the masked Montgomery
@@ -198,7 +209,7 @@ build/obj_%/tvla: build/tvla_%.v sim/sky130_fd_sc_hd_cells.v tb/tvla_harness.cpp
 	$(VERILATOR) --cc --exe --build -j 0 -O3 --x-assign fast --x-initial fast \
 	  -Wno-fatal -Wno-lint -Wno-style --top-module tvla_dut \
 	  -CFLAGS "-O2 -DDUT_KIND=$(DUT_KIND_$*)" -Mdir build/obj_$* -o tvla \
-	  build/tvla_$*.v sim/sky130_fd_sc_hd_cells.v tb/tvla_harness.cpp
+	  $(abspath build/tvla_$*.v sim/sky130_fd_sc_hd_cells.v tb/tvla_harness.cpp)
 
 COLLECT = python3 tools/tvla_collect.py -j $(TVLA_J) --samples $(T_M) --tau $(T_TAU) --noise $(T_NOISE)
 
@@ -239,7 +250,7 @@ TRACE_FLAG_fst := --trace-fst
 build/obj_$(TRACE_FMT)/tvla_plain_wave: build/tvla_plain.v sim/sky130_fd_sc_hd_cells.v tb/tvla_harness.cpp
 	$(VERILATOR) --cc --exe --build -j 0 -O2 $(TRACE_FLAG_$(TRACE_FMT)) -Wno-fatal -Wno-lint -Wno-style \
 	  --top-module tvla_dut -CFLAGS "-O2 -DDUT_KIND=0" -Mdir build/obj_$(TRACE_FMT) -o tvla_plain_wave \
-	  build/tvla_plain.v sim/sky130_fd_sc_hd_cells.v tb/tvla_harness.cpp
+	  $(abspath build/tvla_plain.v sim/sky130_fd_sc_hd_cells.v tb/tvla_harness.cpp)
 tvla-xcheck: build/obj_$(TRACE_FMT)/tvla_plain_wave
 	mkdir -p $(TV)
 	build/obj_$(TRACE_FMT)/tvla_plain_wave --mode fixed --n 1 --samples 400 --caps build/tvla_plain.caps --out $(TV)/xcheck --fst $(TV)/xcheck.$(TRACE_FMT) --fst-traces 2 --check 2
@@ -260,14 +271,36 @@ tvla-test:
 
 .PHONY: tvla-test
 
+# Coded fault detection (docs/FAULT-DETECTION.md): exhaustive/random bit-flip
+# injection on the SEC-DED code, sticky alarm, HD3 FSM, key store and
+# residue-checked mont_mul; pcr_bank and the full chip with AI_ID_FAULT_DETECT.
+fault-test: obj_fd/Vid_engine_top
+	iverilog -g2012 -I rtl -s tb_fault_detect -o /tmp/ai-id-tb-fd rtl/secded39_enc.v rtl/secded39_dec.v \
+	  rtl/fault_alarm.v rtl/mont_mul.v rtl/mont_mul_rc.v rtl/key_store_fd.v tb/tb_fault_detect.sv
+	vvp -n /tmp/ai-id-tb-fd
+	mkdir -p obj_dir && python3 test/gen_pcr_vectors.py obj_dir/pcr_vectors.hex
+	iverilog -g2012 -DAI_ID_FAULT_DETECT -I rtl -s tb_pcr_bank_fd -o /tmp/ai-id-tb-pcrfd rtl/sha256_compress.v \
+	  rtl/secded39_dec.v rtl/fault_alarm.v rtl/pcr_bank.v tb/tb_pcr_bank_fd.sv
+	vvp -n /tmp/ai-id-tb-pcrfd
+	./obj_fd/Vid_engine_top $(SIM_ARGS)
+
+obj_fd/Vid_engine_top: tb/tb_id_engine.cpp tb/se_model.h $(RTL)
+	$(VERILATOR) --cc --exe --build -j 0 $(VFLAGS) $(SIM_DEFS) +define+AI_ID_FAULT_DETECT \
+	  --top-module id_engine_top --Mdir obj_fd $(VCFLAGS) \
+	  -Irtl -Itb $(VLT) $(RTL) $(abspath tb/tb_id_engine.cpp) -o Vid_engine_top
+
+.PHONY: fault-test
+
 # Everything that defines "operational" for this repo (see docs/OPERATIONAL.md).
-test: lint sim rtl-unit regmap verifier hwid kat-rtl tvla-test
+test: lint sim rtl-unit regmap verifier hwid kat-rtl tvla-test fault-test
 	PYTHONPATH=test python3 test/puf_characterize_test.py
 	PYTHONPATH=test python3 test/tvla_test.py
 	@echo "ALL OPERATIONAL GATES PASS"
 
 clean:
-	rm -rf build obj_dir obj_cov verifier/target verifier/demo-out hwid/target demo-out coverage.dat formal/gf_mult formal/otp_fuses formal/pcr_bank
+	rm -rf build obj_dir obj_cov obj_fd verifier/target verifier/demo-out hwid/target demo-out coverage.dat \
+	  formal/gf_mult formal/otp_fuses formal/pcr_bank formal/pcr_bank_fd formal/fault_alarm \
+	  formal/key_store_fd formal/key_store_nonint
 	$(MAKE) -C fpga clean
 
 .PHONY: regmap verifier hwid release-bins demo fpga test clean
