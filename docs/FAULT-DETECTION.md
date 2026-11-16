@@ -94,9 +94,11 @@ alarm, DED, SEC correction) makes the corresponding testbench fail.
 - `formal/key_store_nonint.sby` (k-induction): a two-copy miter with
   independent keys proves `status`, `zeroize` and `key_valid` never depend on
   the key. `key_out` is the only keyed port.
-- `formal/pcr_bank_fd.sby`: with the define, the extend-only property still
-  holds on the decoded PCRs, and once armed the state code is always legal and
-  every word is a valid codeword (no false alarm without an upset).
+- `formal/pcr_bank_fd.sby`: with the define, once armed the controller
+  code is always legal (the FSM part of `fault` never fires without an
+  upset). The extend-only property is proven on the uncoded build only; a
+  proof through all 128 decoders did not finish in 20+ minutes, so the coded
+  words rely on the exhaustive flip testbench above.
 
 ## Limits
 

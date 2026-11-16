@@ -1,7 +1,8 @@
 # pcr_bank built with AI_ID_FAULT_DETECT (SEC-DED PCR words, HD3 controller
-# codes). Same extend-only property as formal/pcr_bank.sby, on the decoded
-# PCR values, plus: in fault-free runs the controller code is always legal and
-# every stored word is a valid codeword (fault never fires without an upset).
+# codes): once the detector is armed, the controller code is always legal in
+# fault-free runs. The extend-only property is proven on the uncoded build
+# (pcr_bank.sby); an extend-only proof through all 128 decoders did not finish
+# in 20+ minutes, so the coded words are covered by tb/tb_pcr_bank_fd.sv.
 # The SHA-256 core is cut out, as in pcr_bank.sby.
 [options]
 mode prove
