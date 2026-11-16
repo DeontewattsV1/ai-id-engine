@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 #include "Vid_engine_top.h"
 #include "verilated.h"
+#if VM_COVERAGE
+#include "verilated_cov.h"
+#endif
 #include <openssl/sha.h>
-#include <openssl/ec.h>
-#include <openssl/obj_mac.h>
 #include <cstdio>
 #include <cstring>
 #include <cassert>
@@ -101,21 +102,7 @@ int main(int argc, char **argv) {
     uint8_t quote[512];
     for (uint32_t i = 0; i < qlen; i++) quote[i] = apb_r(0x0A8);
 
-    // signature is the trailing 64 bytes; verify with OpenSSL
-    uint8_t *sig = quote + qlen - 64;
-    uint8_t trans[32];
-    SHA256_CTX ctx; SHA256_Init(&ctx);
-    SHA256_Update(&ctx, nonce, 32);
-    SHA256_Update(&ctx, quote + 8, qlen - 72);
-    SHA256_Final(trans, &ctx);
-
-    EC_KEY *k = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
-    BIGNUM *r = BN_bin2bn(sig, 32, NULL), *s = BN_bin2bn(sig+32, 32, NULL);
-    ECDSA_SIG *es = ECDSA_SIG_new();
-    ECDSA_SIG_set0(es, r, s);
-    // pubkey is enrolled out-of-band; here the TB holds it from enrollment
-    printf("quote %u bytes, sig verified against enrolled alias key\n", qlen);
-    ECDSA_SIG_free(es); EC_KEY_free(k);
+    printf("quote %u bytes emitted\n", qlen);
 
     // --- zeroize ---
     dut->zeroize_clear = 1; tick(); dut->zeroize_clear = 0;
@@ -126,6 +113,9 @@ int main(int argc, char **argv) {
     assert(apb_r(0x0F0) & 0x01);
 
     printf("PASS  %llu cycles\n", (unsigned long long)cyc);
+#if VM_COVERAGE
+    VerilatedCov::write("coverage.dat");
+#endif
     dut->final();
     delete dut;
     return 0;
