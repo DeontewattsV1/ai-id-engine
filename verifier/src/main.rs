@@ -15,7 +15,7 @@ use p256::ecdsa::SigningKey;
 use rand_core::{OsRng, RngCore};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -45,7 +45,7 @@ fn cmd_verify(args: &[String]) -> Result<(), String> {
     verify(&quote, &chain, &policy, &nonce, now).map_err(|e| e.to_string())
 }
 
-fn write(dir: &PathBuf, name: &str, v: &impl serde::Serialize) -> Result<String, String> {
+fn write(dir: &Path, name: &str, v: &impl serde::Serialize) -> Result<String, String> {
     let p = dir.join(name);
     let s = serde_json::to_string_pretty(v).map_err(|e| e.to_string())?;
     std::fs::write(&p, s + "\n").map_err(|e| format!("{}: {e}", p.display()))?;
