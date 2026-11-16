@@ -11,7 +11,7 @@ hardware and software stack for AI identity attestation that can be deployed acr
 visual representation of AI/AGI/LLM identity layers and a conceptual "birth certificate" ID for an AI system.
 <img width="1536" height="1152" alt="image" src="https://github.com/user-attachments/assets/38d2c581-a2be-4763-8ca2-e6a9ba3dabaf" />
 
-## Status — v0.1.0 working prototype
+## Status — v0.2.0 working prototype (pre-silicon assessment, FPGA proxy)
 
 A working, tested prototype of the whole chain: **RTL identity engine →
 hardware quote → Rust verifier → AI Birth Certificate**, plus a host HWID /
@@ -38,25 +38,50 @@ offline-activation / TPM attestation tool. Not production-certified — read
 * **`ai-id-verifier`** (`verifier/`): appraises software and hardware (AIQ2)
   quotes.
 
-## v0.2.0: masked multiplier + simulated TVLA
+## v0.2.0: pre-silicon assessment, FPGA proxy
 
-`make tvla` maps the plain and masked Montgomery multipliers onto sky130
-(Yosys `abc -liberty`), simulates the gate-level netlists in Verilator with
-a capacitance-weighted power model, and gates them with Welch TVLA. It
-runs a null control first, then a positive control, then first-order and
-second-order tests, with computed thresholds (4.37 at M=4000). Results,
-including the honest ones, are in [docs/TVLA.md](docs/TVLA.md). The traces
-are simulated, not silicon. `make kat` runs the NIST/RFC known-answer
-tests, and `make formal-all` runs the SymbiYosys proofs. The 84-file
-bundle review is in [docs/BUNDLE-REVIEW.md](docs/BUNDLE-REVIEW.md).
+Everything below is pre-silicon evidence from simulation, formal proofs and
+an FPGA proxy. None of it is a silicon measurement or a certification.
+
+- **Masked multiplier + simulated TVLA** ([docs/TVLA.md](docs/TVLA.md)).
+  `make tvla` maps the plain and masked Montgomery multipliers onto sky130
+  (Yosys `abc -liberty`), simulates the gate-level netlists in Verilator
+  with a capacitance-weighted power model, and gates them with Welch TVLA.
+  It runs a null control first, then a positive control, then first- and
+  second-order tests, with computed thresholds (4.37 at M=4000).
+
+  | Design | 2nd order, ci profile | Result |
+  |---|---|---|
+  | 2-share `masked_v2` | 26.5 | fails, as expected for 2 shares |
+  | 3-share `masked3` | — | passes at 4000 traces/group |
+
+  The traces are simulated, not silicon.
+- **Coded fault detection** ([docs/FAULT-DETECTION.md](docs/FAULT-DETECTION.md)),
+  opt-in with `AI_ID_FAULT_DETECT`:
+  - PCRs held as SEC-DED words;
+  - Hamming(7,4) FSM codes;
+  - a sticky, duplicated alarm that zeroizes;
+  - bit-flip injection in `make fault-test`.
+
+  It detects faults. It is not side-channel hardening.
+- **RTL→netlist equivalence** ([docs/EQUIVALENCE.md](docs/EQUIVALENCE.md)),
+  `make equiv`. This is partial: two registers are an open proof gap.
+- **Signed evidence reports** ([docs/EVIDENCE.md](docs/EVIDENCE.md)),
+  `aiid evidence`, with mandatory provenance. swtpm and the software key
+  are reported as `software`, never as hardware-rooted.
+- **Reproducible bitstream** ([docs/REPRODUCIBLE.md](docs/REPRODUCIBLE.md)),
+  `make -C fpga repro`, with digests locked in CI.
+- **Other checks:** `make kat` runs the NIST/RFC known-answer tests, and
+  `make formal-all` and `make formal-fd` run the SymbiYosys proofs. The
+  84-file bundle review is in [docs/BUNDLE-REVIEW.md](docs/BUNDLE-REVIEW.md).
 
 ## Quick start
 
 ### Use the release binaries (Linux x86_64, static)
 
 ```sh
-curl -LO https://github.com/DeontewattsV1/ai-id-engine/releases/download/v0.1.0/aiid-v0.1.0-linux-x86_64.tar.gz
-tar xzf aiid-v0.1.0-linux-x86_64.tar.gz && cd aiid-v0.1.0-linux-x86_64
+curl -LO https://github.com/DeontewattsV1/ai-id-engine/releases/download/v0.2.0/aiid-v0.2.0-linux-x86_64.tar.gz
+tar xzf aiid-v0.2.0-linux-x86_64.tar.gz && cd aiid-v0.2.0-linux-x86_64
 ./hwid show                      # HWID + components (salted hashes)
 ./hwid challenge                 # offline-activation code, e.g. 200Q-KD6C-8PGX-KSJG-9
 ./aiid ca init --dir ca          # TEST-ONLY demo vendor CA
