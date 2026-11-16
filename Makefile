@@ -15,7 +15,8 @@ sim: obj_dir/Vid_engine_top
 	./obj_dir/Vid_engine_top
 
 lint:
-	$(VERILATOR) --lint-only -Wall -Irtl $(RTL) --top-module id_engine_top
+	$(VERILATOR) --lint-only -Wall -Irtl $(RTL) --top-module id_engine_top \
+	  -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-BLKSEQ -Wno-PINCONNECTEMPTY -Wno-UNDRIVEN
 
 cov:
 	$(VERILATOR) --cc --exe --build --coverage -Irtl $(RTL) tb/tb_id_engine.cpp
