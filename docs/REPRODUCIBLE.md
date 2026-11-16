@@ -32,3 +32,8 @@ job summary or the `repro-digests` artifact into a follow-up PR.
 **Changing on purpose:** an RTL change, an FPGA-top change or an OSS CAD
 Suite bump changes the digests. Update `repro.sha256` and `toolchain.lock`
 in the same PR, so the change is reviewed rather than silent.
+
+The current `fpga/repro.sha256` and `fpga/toolchain.lock` come from the
+`repro` job on PR #42 (OSS CAD Suite 2026-11-15: Yosys 0.71+34, nextpnr
+0.11.1-92, Trellis 1.4-88). Both clean builds there were bit-identical, and
+the `otp_image.vh` digest also matches a local build.
