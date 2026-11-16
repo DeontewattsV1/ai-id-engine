@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Si-32 Gate-Level CPU</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;500&family=Martian+Mono:wdth,wght@75..112.5,300..800&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Layout: the live die is the hero; below it a bench (controls, I/O, registers), then anatomy and source. One column, quiet chrome, gold = logic 1 */
+  --bg:#e7e9ec;
+  --surface:#f6f7f9;
+  --ink:#0f1216;
+  --muted:#59616c;
+  --line:#d0d5dc;
+  --accent:#8a6100;
+  --ok:#2b7a3d;
+  --bad:#c0352b;
+  --display:"Martian Mono",ui-monospace,Menlo,monospace;
+  --body:"Atkinson Hyperlegible","Helvetica Neue",Arial,sans-serif;
+  --code:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b0d10; --surface:#13171c; --ink:#e5e8ec; --muted:#8a939f; --line:#242b34; --accent:#f2b632; --ok:#5cc27a; --bad:#ff7b6e;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b0d10; --surface:#13171c; --ink:#e5e8ec; --muted:#8a939f; --line:#242b34; --accent:#f2b632; --ok:#5cc27a; --bad:#ff7b6e;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:960px;margin:0 auto;padding:26px 16px 64px;display:flex;flex-direction:column;gap:28px}
+.kicker{font-family:var(--display);font-size:11px;font-stretch:87.5%;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:800;font-stretch:112.5%;font-size:clamp(56px,15vw,120px);line-height:.9;margin:6px 0 0;letter-spacing:-.04em}
+h1 .dot{color:var(--accent)}
+.thesis{font-size:clamp(17px,2.6vw,20px);max-width:58ch;margin:12px 0 0;text-wrap:balance}
+.thesis b{font-family:var(--display);font-weight:600;font-size:.88em;font-stretch:100%}
+h2{font-family:var(--display);font-weight:600;font-stretch:100%;font-size:18px;letter-spacing:-.01em;margin:0;text-wrap:balance}
+h3{font-family:var(--display);font-weight:500;font-size:13px;margin:0}
+p{margin:0}
+.muted{color:var(--muted)}
+.small{font-size:14px}
+section{display:flex;flex-direction:column;gap:14px}
+.head{display:flex;justify-content:space-between;align-items:baseline;gap:8px 16px;flex-wrap:wrap}
+
+/* die */
+.die-wrap{background:#0b0e12;border-radius:12px;padding:10px;box-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 18px 40px -24px rgba(0,0,0,.6)}
+#die{display:block;width:100%;aspect-ratio:1.5/1;border-radius:6px}
+@media (max-width:560px){#die{aspect-ratio:1/1.05}}
+.die-cap{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;padding:8px 4px 2px;font-family:var(--code);font-size:12px;color:#9aa5b1}
+.die-cap i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.stat{background:var(--surface);padding:11px 14px;display:flex;flex-direction:column;gap:1px;min-width:0}
+.stat .k{font-size:12.5px;color:var(--muted)}
+.stat .v{font-family:var(--display);font-weight:600;font-size:20px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.stat .s{font-family:var(--code);font-size:11.5px;color:var(--muted)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--code);font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill.ok{color:var(--ok)} .pill.bad{color:var(--bad)} .pill.idle{color:var(--muted)}
+
+/* bench */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:14px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:inherit;font-size:14px;padding:6px 13px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+.chip:hover{border-color:var(--accent)}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.btn{font:inherit;font-size:14px;font-weight:700;padding:8px 16px;border-radius:8px;border:1px solid var(--ink);background:var(--ink);color:var(--surface);cursor:pointer;min-width:84px}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn.ghost:hover{border-color:var(--ink)}
+.btn:disabled{opacity:.45;cursor:default}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{font-family:var(--code);font-size:12.5px;padding:7px 11px;border:0;background:transparent;color:var(--ink);cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--surface)}
+:root[data-theme="dark"] .seg button[aria-pressed="true"]{color:#111}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .seg button[aria-pressed="true"]{color:#111}}
+.lbl{font-size:12.5px;color:var(--muted)}
+button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.io{display:grid;grid-template-columns:1fr auto;gap:14px}
+@media (max-width:620px){.io{grid-template-columns:1fr}}
+.term{background:#0b0e12;color:#d8dee6;border-radius:8px;padding:10px 12px;font-family:var(--code);font-size:12.5px;line-height:1.5;height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0}
+.term .cursor{display:inline-block;width:7px;height:13px;background:#f2b632;vertical-align:-2px;margin-left:1px}
+.fbbox{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+#fb{width:220px;height:220px;image-rendering:pixelated;border-radius:8px;background:#0b1020;display:block}
+@media (max-width:620px){#fb{width:100%;height:auto;aspect-ratio:1}.fbbox{align-items:stretch}}
+.cap{font-family:var(--code);font-size:11.5px;color:var(--muted)}
+
+.now{display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--code);font-size:13px;font-variant-numeric:tabular-nums}
+.now b{font-weight:500}
+.listing{font-family:var(--code);font-size:12.5px;background:var(--bg);border-radius:8px;padding:8px 0;margin:0;overflow-x:auto}
+.listing div{padding:1px 12px;white-space:pre;color:var(--muted)}
+.listing div.cur{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--ink);box-shadow:inset 3px 0 0 var(--accent)}
+.listing .ln{display:inline-block;width:3.2em;opacity:.6}
+
+.regs{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+@media (max-width:620px){.regs{grid-template-columns:repeat(2,1fr)}}
+.reg{background:var(--surface);padding:5px 9px;font-family:var(--code);font-size:12px;display:flex;justify-content:space-between;gap:6px;font-variant-numeric:tabular-nums;transition:background .4s}
+.reg .n{color:var(--muted)}
+.reg.hot{background:color-mix(in srgb,var(--accent) 22%,var(--surface));transition:none}
+
+textarea{width:100%;min-height:300px;resize:vertical;font-family:var(--code);font-size:13px;line-height:1.5;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:10px 12px;white-space:pre;overflow-wrap:normal;overflow-x:auto;tab-size:4}
+.errs{font-family:var(--code);font-size:12.5px;color:var(--bad);margin:0;padding-left:18px}
+.ref{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px 26px;font-size:14px}
+.ref code{font-family:var(--code);font-size:12.5px}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+td,th{padding:6px 8px 6px 0;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{font-weight:400;color:var(--muted);font-size:12.5px}
+td.num{text-align:right;font-family:var(--code);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;min-width:60px}
+.bar i{display:block;height:100%;background:var(--accent);width:0}
+
+.ladder{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.rung{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,2fr) auto auto;gap:12px;align-items:center;padding:9px 14px;background:var(--surface);border-top:1px solid var(--line)}
+.rung:first-child{border-top:0}
+.rung .nm{font-family:var(--display);font-weight:600;font-size:13.5px}
+.rung .ds{font-size:13.5px;color:var(--muted)}
+.rung .ct{font-family:var(--code);font-size:13px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rung button{font-family:var(--code);font-size:12px;padding:4px 9px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+.rung.top{background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+@media (max-width:620px){.rung{grid-template-columns:1fr auto auto}.rung .ds{display:none}}
+.schem{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px}
+#fa{display:block;width:100%;min-width:580px;aspect-ratio:730/262}
+.toggles{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tg{font-family:var(--code);font-size:13px;padding:6px 12px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;min-width:74px}
+.tg[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+:root[data-theme="dark"] .tg[aria-pressed="true"]{color:#111}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .tg[aria-pressed="true"]{color:#111}}
+pre.code{margin:0;background:#0b0e12;color:#d8dee6;border-radius:10px;padding:14px;font-family:var(--code);font-size:12.5px;line-height:1.55;max-height:460px;overflow:auto;white-space:pre}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px 28px;font-size:14.5px}
+.notes p{color:var(--muted)}
+.notes h3{margin-bottom:3px}
+@media (prefers-reduced-motion: reduce){.reg{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Gate-level processor · RISC-V RV32I + MUL · running in this page</div>
+  <h1>Si<span class="dot">-</span>32</h1>
+  <p class="thesis">A 32-bit RISC-V processor wired from <b id="h-gates">18,237</b> NAND gates and <b id="h-ffs">1,024</b> flip-flops. Each clock tick evaluates every gate. The picture below is the chip itself: each dot is one gate, and it lights up when its output is 1.</p>
+</header>
+
+<section aria-label="Die">
+  <div class="die-wrap">
+    <canvas id="die" aria-label="Live map of every gate and flip-flop on the chip, grouped by functional block"></canvas>
+    <div class="die-cap">
+      <span><i style="background:#f2b632"></i>gate output = 1</span>
+      <span><i style="background:#232c37"></i>gate output = 0</span>
+      <span><i style="background:#6fc8ff"></i>flip-flop holding 1</span>
+      <span>area ∝ cell count</span>
+    </div>
+  </div>
+  <div class="stats" id="stats"></div>
+</section>
+
+<section class="panel" aria-labelledby="bench-h">
+  <div class="head">
+    <h2 id="bench-h">Bench</h2>
+    <span class="pill idle" id="verify">lockstep check idle</span>
+  </div>
+  <div class="chips" id="progs" role="group" aria-label="Programs"></div>
+  <div class="controls">
+    <button class="btn" id="run">Pause</button>
+    <button class="btn ghost" id="step">Step 1 cycle</button>
+    <button class="btn ghost" id="reset">Reset</button>
+    <span class="lbl">Clock</span>
+    <div class="seg" id="clock" role="group" aria-label="Clock speed"></div>
+  </div>
+  <div class="io">
+    <div><pre class="term" id="console" aria-live="off"></pre><div class="cap">UART console</div></div>
+    <div class="fbbox"><canvas id="fb" width="64" height="64" aria-label="64 by 64 framebuffer"></canvas><div class="cap">framebuffer 0x10000 · 64×64</div></div>
+  </div>
+  <div class="now" id="now"></div>
+  <div class="listing" id="listing" aria-label="Program listing around the program counter"></div>
+  <div class="head"><h3>Registers</h3><div class="seg" id="radix" role="group" aria-label="Register number format"><button aria-pressed="true" data-r="hex">hex</button><button aria-pressed="false" data-r="dec">dec</button></div></div>
+  <div class="regs" id="regs"></div>
+</section>
+
+<section class="panel" aria-labelledby="ed-h">
+  <div class="head">
+    <h2 id="ed-h">Program it</h2>
+    <button class="btn" id="asm">Assemble and run</button>
+  </div>
+  <p class="small muted">Write RISC-V assembly; the built-in assembler turns it into machine code and loads it at address 0. End with <code>ebreak</code> to stop the clock.</p>
+  <textarea id="src" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Assembly source"></textarea>
+  <ul class="errs" id="errs"></ul>
+  <div class="ref">
+    <div><h3>Instructions</h3><p class="muted"><code>lui auipc jal jalr beq bne blt bge bltu bgeu lb lh lw lbu lhu sb sh sw addi slti sltiu xori ori andi slli srli srai add sub sll slt sltu xor srl sra or and mul ebreak</code></p></div>
+    <div><h3>Pseudo-instructions</h3><p class="muted"><code>li la mv j call ret nop not neg seqz snez jr beqz bnez bgt ble bgtu bleu</code> and <code>.equ .word .half .byte .string .zero .align</code></p></div>
+    <div><h3>Memory map</h3><p class="muted"><code>0x00000</code> 64 KiB RAM · <code>0x10000</code> framebuffer, one byte per pixel (16 colours) · <code>0x1F000</code> UART, store a byte to print it · <code>0x1F004</code> store a word to print it in decimal · <code>0x1F008</code> load the cycle counter</p></div>
+  </div>
+</section>
+
+<section aria-labelledby="blk-h">
+  <div class="head"><h2 id="blk-h">Floorplan</h2><span class="lbl">activity = share of the block's gates that changed state during the last frame</span></div>
+  <table aria-label="Gate count and live activity by block">
+    <thead><tr><th>Block</th><th class="num">Gates</th><th class="num">Flip-flops</th><th style="width:30%">Activity</th></tr></thead>
+    <tbody id="blocks"></tbody>
+  </table>
+</section>
+
+<section aria-labelledby="lad-h">
+  <div class="head"><h2 id="lad-h">From one gate up</h2></div>
+  <p class="small muted">Everything is composed from the same two-input NAND. These counts come from building each part on its own with the page's generator code.</p>
+  <div class="ladder" id="ladder"></div>
+  <h3>A full adder, live</h3>
+  <p class="small muted">Nine NAND gates add three bits. It is drawn from the same function the chip calls 560 times, in the ALU adder, the multiplier and the branch-target adder. Toggle the inputs.</p>
+  <div class="toggles" id="fa-tg">
+    <button class="tg" data-k="a" aria-pressed="true">A = 1</button>
+    <button class="tg" data-k="b" aria-pressed="false">B = 0</button>
+    <button class="tg" data-k="c" aria-pressed="true">Cin = 1</button>
+    <span class="now" id="fa-out"></span>
+  </div>
+  <div class="schem"><canvas id="fa" aria-label="Full adder schematic built from nine NAND gates"></canvas></div>
+</section>
+
+<section aria-labelledby="code-h">
+  <div class="head"><h2 id="code-h">The code that wires it</h2></div>
+  <p class="small muted">This is the generator running on this page, shown as-is. Calling <code>buildCPU()</code> produces the netlist simulated above.</p>
+  <div class="chips" id="code-tabs" role="group" aria-label="Source to show"></div>
+  <pre class="code" id="code"></pre>
+</section>
+
+<section aria-labelledby="notes-h">
+  <h2 id="notes-h">What is real, and what is modelled</h2>
+  <div class="notes">
+    <div><h3>Logic</h3><p>Every logic operation is a two-input NAND evaluated each cycle. Constant inputs and duplicate gates are folded away during construction, as a synthesis tool would do.</p></div>
+    <div><h3>Storage</h3><p>The 1,024 flip-flops (31 registers × 32 bits plus the program counter) are simulated as clocked cells. Each one stands for a six-NAND edge-triggered flip-flop.</p></div>
+    <div><h3>Memory</h3><p>RAM, the framebuffer and the I/O ports sit off-chip on the bus as a behavioural model, the way a separate RAM chip would. The CPU drives address, data and byte-enable pins.</p></div>
+    <div><h3>Design</h3><p>Single-cycle: one instruction per clock. The adders are ripple-carry. There is no pipeline, cache, interrupts, CSRs, divide or MULH, and misaligned loads and stores are not supported.</p></div>
+    <div><h3>Verification</h3><p>An independent reference model executes the same program in lockstep, and the program counter is compared every cycle and all registers every 64 cycles. In this repository, <code>web/si32/test/lockstep.test.js</code> runs the same comparison headless in Node with every register checked after every instruction: the four demos (382,402 instructions) and 60 randomised programs (27,724 instructions, seed 1) match register for register and byte for byte in memory, and <code>mutation.test.js</code> shows that inverting any one of 300 randomly chosen gates is caught (297 of 300). It is a functional simulation in a web page, not a fabricated chip.</p></div>
+    <div><h3>Scale</h3><p id="scale"></p></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   Si-32 core: a RISC-V (RV32I + MUL) processor described as NAND gates.
+   Everything below the Circuit class is built from one primitive:
+   c.nand(a, b). Flip-flops are clocked storage cells.
+   ===================================================================== */
+
+const ZERO = 0, ONE = 1;            // net 0 is tied low, net 1 is tied high
+
+class Circuit {
+  constructor() {
+    this.A = []; this.B = []; this.O = []; this.G = [];   // gate inputs, output, block
+    this.nNets = 2;
+    this.blocks = ["Glue logic"]; this.cur = 0;
+    this.dffQ = []; this.dffD = []; this.dffBlk = [];
+    this.hash = new Map(); this.notOf = new Map();
+  }
+  setBlock(name) {
+    let i = this.blocks.indexOf(name);
+    if (i < 0) { i = this.blocks.length; this.blocks.push(name); }
+    this.cur = i;
+  }
+  input() { return this.nNets++; }
+  // The only logic primitive. Constant inputs and duplicate gates are folded
+  // away, the way a synthesis tool would.
+  nand(a, b) {
+    if (a === ZERO || b === ZERO) return ONE;
+    if (a === ONE && b === ONE) return ZERO;
+    if (a === ONE) a = b;
+    if (b === ONE) b = a;
+    if (a === b && this.notOf.has(a)) return this.notOf.get(a);   // NOT(NOT x) = x
+    if (a > b) { const t = a; a = b; b = t; }
+    const key = a * 1048576 + b;
+    const hit = this.hash.get(key);
+    if (hit !== undefined) return hit;
+    const o = this.nNets++;
+    this.A.push(a); this.B.push(b); this.O.push(o); this.G.push(this.cur);
+    this.hash.set(key, o);
+    if (a === b) this.notOf.set(o, a);
+    return o;
+  }
+  dff() {
+    const q = this.nNets++;
+    this.dffQ.push(q); this.dffD.push(-1); this.dffBlk.push(this.cur);
+    return { q, idx: this.dffQ.length - 1 };
+  }
+  connect(ff, d) { this.dffD[ff.idx] = d; }
+}
+
+/* ---------- gates made of NAND ---------- */
+function NOT(c, a) { return c.nand(a, a); }
+function AND(c, a, b) { return NOT(c, c.nand(a, b)); }
+function OR(c, a, b) { return c.nand(NOT(c, a), NOT(c, b)); }
+function XOR(c, a, b) {
+  const x = c.nand(a, b);
+  return c.nand(c.nand(a, x), c.nand(b, x));
+}
+// 2-to-1 multiplexer: s ? b : a
+function MUX(c, s, a, b, ns = NOT(c, s)) {
+  return c.nand(c.nand(a, ns), c.nand(b, s));
+}
+function muxBus(c, s, A, B) { const ns = NOT(c, s); return A.map((a, i) => MUX(c, s, a, B[i], ns)); }
+function andReduce(c, xs) { while (xs.length > 1) { const n = []; for (let i = 0; i < xs.length; i += 2) n.push(i + 1 < xs.length ? AND(c, xs[i], xs[i + 1]) : xs[i]); xs = n; } return xs[0]; }
+function orReduce(c, xs) { while (xs.length > 1) { const n = []; for (let i = 0; i < xs.length; i += 2) n.push(i + 1 < xs.length ? OR(c, xs[i], xs[i + 1]) : xs[i]); xs = n; } return xs[0]; }
+// true when the bits spell out `value`
+function match(c, bits, value) { return andReduce(c, bits.map((b, i) => ((value >> i) & 1) ? b : NOT(c, b))); }
+
+/* ---------- arithmetic ---------- */
+function halfAdder(c, a, b) {
+  const x = c.nand(a, b);
+  return { s: c.nand(c.nand(a, x), c.nand(b, x)), co: NOT(c, x) };
+}
+// The classic nine-NAND full adder
+function fullAdder(c, a, b, ci) {
+  const t1 = c.nand(a, b);
+  const t2 = c.nand(a, t1), t3 = c.nand(t1, b);
+  const s1 = c.nand(t2, t3);                 // a XOR b
+  const t4 = c.nand(s1, ci);
+  const t5 = c.nand(s1, t4), t6 = c.nand(t4, ci);
+  return { s: c.nand(t5, t6), co: c.nand(t1, t4) };
+}
+// Ripple-carry adder of any width; also reports the carry into the top bit (for overflow)
+function rippleAdder(c, A, B, ci) {
+  const S = []; let carry = ci, cMsb = ci;
+  for (let i = 0; i < A.length; i++) {
+    cMsb = carry;
+    const r = fullAdder(c, A[i], B[i], carry);
+    S.push(r.s); carry = r.co;
+  }
+  return { S, co: carry, cMsb };
+}
+// Logarithmic barrel shifter (right). Five stages shift by 1, 2, 4, 8, 16.
+function shiftRight(c, X, amount, fill) {
+  let cur = X;
+  for (let k = 0; k < amount.length; k++) {
+    const d = 1 << k, s = amount[k], ns = NOT(c, s);
+    cur = cur.map((x, i) => MUX(c, s, x, i + d < cur.length ? cur[i + d] : fill, ns));
+  }
+  return cur;
+}
+// Array multiplier, low 32 bits of A*B: AND gates make partial products,
+// one row of full adders per multiplier bit.
+function multiplier(c, A, B) {
+  let acc = A.map(a => AND(c, a, B[0]));
+  for (let i = 1; i < B.length; i++) {
+    const row = [];
+    for (let j = 0; j < A.length - i; j++) row.push(AND(c, A[j], B[i]));
+    acc = acc.slice(0, i).concat(rippleAdder(c, acc.slice(i), row, ZERO).S);
+  }
+  return acc;
+}
+// N-way bus multiplexer as a binary tree of 2-to-1 muxes
+function muxN(c, buses, sel) {
+  let cur = buses;
+  for (let k = 0; k < sel.length; k++) {
+    const s = sel[k], ns = NOT(c, s), next = [];
+    for (let i = 0; i < cur.length; i += 2) next.push(cur[i].map((a, j) => MUX(c, s, a, cur[i + 1][j], ns)));
+    cur = next;
+  }
+  return cur[0];
+}
+// 5-to-32 decoder with enable (one-hot write select for the register file)
+function decoder5(c, sel, en) {
+  const lo = [0, 1, 2, 3].map(v => match(c, sel.slice(0, 2), v));
+  const hi = [0, 1, 2, 3, 4, 5, 6, 7].map(v => AND(c, match(c, sel.slice(2, 5), v), en));
+  const out = [];
+  for (let r = 0; r < 32; r++) out.push(AND(c, lo[r & 3], hi[r >> 2]));
+  return out;
+}
+const fill = (n, x) => Array(n).fill(x);
+
+/* =====================================================================
+   The processor: single-cycle RV32I + MUL, 31 x 32-bit registers.
+   ===================================================================== */
+function buildCPU() {
+  const c = new Circuit();
+
+  // ---- state ----
+  c.setBlock("Program counter");
+  const pcFF = Array.from({ length: 32 }, () => c.dff());
+  const pc = pcFF.map(f => f.q);
+  c.setBlock("Register file");
+  const regFF = [null], Q = [fill(32, ZERO)];                 // x0 is hard-wired to zero
+  for (let r = 1; r < 32; r++) { const ffs = Array.from({ length: 32 }, () => c.dff()); regFF.push(ffs); Q.push(ffs.map(f => f.q)); }
+
+  // ---- pins to the memory bus ----
+  const instr = Array.from({ length: 32 }, () => c.input());   // instruction word at PC
+  const memR = Array.from({ length: 32 }, () => c.input());    // data word at the load address
+
+  // ---- decode ----
+  c.setBlock("Instruction decoder");
+  const op = instr.slice(0, 7), rd = instr.slice(7, 12), f3 = instr.slice(12, 15);
+  const rs1 = instr.slice(15, 20), rs2 = instr.slice(20, 25);
+  const isLUI = match(c, op, 0x37), isAUIPC = match(c, op, 0x17), isJAL = match(c, op, 0x6F);
+  const isJALR = match(c, op, 0x67), isBR = match(c, op, 0x63), isLD = match(c, op, 0x03);
+  const isST = match(c, op, 0x23), isOPI = match(c, op, 0x13), isOP = match(c, op, 0x33);
+  const isSYS = match(c, op, 0x73);
+  const isArith = OR(c, isOP, isOPI);
+  const g = f3.map(b => AND(c, b, isArith));                  // ALU function (ADD unless arithmetic)
+  const g000 = match(c, g, 0), isSLT = match(c, g, 2), isSLTU = match(c, g, 3);
+  const isLeft = match(c, g, 1), isSRx = match(c, g, 5);
+  const isMul = AND(c, AND(c, isOP, instr[25]), g000);
+  const doSub = OR(c, OR(c, isBR, AND(c, AND(c, isOP, instr[30]), g000)), OR(c, isSLT, isSLTU));
+
+  // ---- immediates (pure wiring, then a select) ----
+  c.setBlock("Immediate generator");
+  const sgn = instr[31];
+  const immI = [...instr.slice(20, 32), ...fill(20, sgn)];
+  const immS = [...instr.slice(7, 12), ...instr.slice(25, 32), ...fill(20, sgn)];
+  const immB = [ZERO, ...instr.slice(8, 12), ...instr.slice(25, 31), instr[7], ...fill(20, sgn)];
+  const immU = [...fill(12, ZERO), ...instr.slice(12, 32)];
+  const immJ = [ZERO, ...instr.slice(21, 31), instr[20], ...instr.slice(12, 20), ...fill(12, sgn)];
+  let imm = muxBus(c, isST, immI, immS);
+  imm = muxBus(c, isBR, imm, immB);
+  imm = muxBus(c, OR(c, isLUI, isAUIPC), imm, immU);
+  imm = muxBus(c, isJAL, imm, immJ);
+
+  // ---- register reads ----
+  c.setBlock("Register file");
+  const rv1 = muxN(c, Q, rs1), rv2 = muxN(c, Q, rs2);
+
+  // ---- ALU operands ----
+  c.setBlock("ALU operand select");
+  const notLUI = NOT(c, isLUI);
+  const opA = muxBus(c, isAUIPC, rv1, pc).map(a => AND(c, a, notLUI));
+  const opB = muxBus(c, OR(c, isOP, isBR), imm, rv2);
+
+  // ---- adder / comparator ----
+  c.setBlock("Adder & comparator");
+  const add = rippleAdder(c, opA, opB.map(b => XOR(c, b, doSub)), doSub);
+  const S = add.S;
+  const V = XOR(c, add.co, add.cMsb);
+  const Z = NOT(c, orReduce(c, S));
+  const lt = XOR(c, S[31], V), ltu = NOT(c, add.co);
+
+  // ---- shifter ----
+  c.setBlock("Barrel shifter");
+  const arith = AND(c, instr[30], isSRx);
+  const shIn = muxBus(c, isLeft, opA, [...opA].reverse());
+  const shR = shiftRight(c, shIn, opB.slice(0, 5), AND(c, arith, shIn[31]));
+  const shOut = muxBus(c, isLeft, shR, [...shR].reverse());
+
+  // ---- logic unit ----
+  c.setBlock("Logic unit");
+  const andB = opA.map((a, i) => AND(c, a, opB[i]));
+  const orB = opA.map((a, i) => OR(c, a, opB[i]));
+  const xorB = opA.map((a, i) => XOR(c, a, opB[i]));
+
+  // ---- multiplier ----
+  c.setBlock("Multiplier");
+  const prod = multiplier(c, opA, opB);
+
+  // ---- result select ----
+  c.setBlock("ALU result mux");
+  const r0 = muxBus(c, isMul, S, prod);
+  const aluOut = muxN(c, [r0, shOut, [lt, ...fill(31, ZERO)], [ltu, ...fill(31, ZERO)], xorB, shOut, orB, andB], g);
+
+  // ---- load / store ----
+  c.setBlock("Load/store unit");
+  const o0 = S[0], o1 = S[1];
+  const s1 = muxBus(c, o1, memR, [...memR.slice(16), ...fill(16, ZERO)]);
+  const s2 = muxBus(c, o0, s1, [...s1.slice(8), ...fill(8, ZERO)]);
+  const isB = match(c, f3.slice(0, 2), 0), isW = f3[1], isH = AND(c, f3[0], NOT(c, f3[1]));
+  const ext = AND(c, NOT(c, f3[2]), MUX(c, isB, s2[15], s2[7]));
+  const ld = s2.map((b, i) => i < 8 ? b : i < 16 ? MUX(c, isB, b, ext) : MUX(c, isW, ext, b));
+  const wd = rv2.slice(0, 8);
+  for (let k = 0; k < 8; k++) wd[8 + k] = MUX(c, isB, rv2[8 + k], rv2[k]);
+  for (let k = 0; k < 8; k++) wd[16 + k] = MUX(c, isW, rv2[k], rv2[16 + k]);
+  for (let k = 0; k < 8; k++) wd[24 + k] = MUX(c, isW, wd[8 + k], rv2[24 + k]);
+  const n0 = NOT(c, o0), n1 = NOT(c, o1);
+  const lane = (hiSel, b0) => OR(c, isW, OR(c, AND(c, isH, hiSel), AND(c, isB, AND(c, hiSel, b0))));
+  const mask = [lane(n1, n0), lane(n1, o0), lane(o1, n0), lane(o1, o0)];
+
+  // ---- next PC ----
+  c.setBlock("PC & branch unit");
+  const pc4 = [pc[0], pc[1]];
+  let carry = ONE;
+  for (let i = 2; i < 32; i++) { const h = halfAdder(c, pc[i], carry); pc4.push(h.s); carry = h.co; }
+  const target = rippleAdder(c, pc, imm, ZERO).S;
+  const base = MUX(c, f3[2], Z, MUX(c, f3[1], lt, ltu));
+  const taken = AND(c, isBR, XOR(c, base, f3[0]));
+  let next = muxBus(c, OR(c, taken, isJAL), pc4, target);
+  next = muxBus(c, isJALR, next, [ZERO, ...S.slice(1)]);
+  next = muxBus(c, isSYS, next, pc);                          // ECALL/EBREAK halt the clock
+  pcFF.forEach((f, i) => c.connect(f, next[i]));
+
+  // ---- write back ----
+  c.setBlock("Writeback");
+  const regWrite = orReduce(c, [isLUI, isAUIPC, isOP, isOPI, isLD, isJAL, isJALR]);
+  let wb = muxBus(c, isLD, aluOut, ld);
+  wb = muxBus(c, OR(c, isJAL, isJALR), wb, pc4);
+  c.setBlock("Register file");
+  const we = decoder5(c, rd, regWrite);
+  for (let r = 1; r < 32; r++) {
+    const D = muxBus(c, we[r], Q[r], wb);
+    regFF[r].forEach((f, i) => c.connect(f, D[i]));
+  }
+
+  return { c, pc, Q, instr, memR, addr: S, wdata: wd, mask, we: isST, re: isLD, halt: isSYS };
+}
+
+/* =====================================================================
+   Levelized simulator: gates were created in dependency order, so one
+   pass evaluates the whole combinational network each clock cycle.
+   ===================================================================== */
+class GateCPU {
+  constructor(bus) {
+    this.bus = bus;
+    this.net = buildCPU();
+    const c = this.net.c;
+    const n = c.A.length;
+    // Gates downstream of the memory data pins must wait for the read.
+    const late = new Uint8Array(c.nNets);
+    this.net.memR.forEach(x => { late[x] = 1; });
+    const pre = [], post = [];
+    for (let i = 0; i < n; i++) {
+      if (late[c.A[i]] || late[c.B[i]]) { late[c.O[i]] = 1; post.push(i); } else pre.push(i);
+    }
+    if (this.net.addr.some(x => late[x])) throw new Error("address depends on memory data");
+    const order = pre.concat(post);
+    this.split = pre.length; this.n = n;
+    // Renumber nets: constants, then flip-flop outputs and pins, then gate outputs in
+    // evaluation order, so each gate writes to the next slot in memory.
+    const map = new Int32Array(c.nNets).fill(-1);
+    map[0] = 0; map[1] = 1; let k = 2;
+    for (const q of c.dffQ) map[q] = k++;
+    for (const x of this.net.instr.concat(this.net.memR)) map[x] = k++;
+    this.base = k;
+    order.forEach((gi, i) => { map[c.O[gi]] = k + i; });
+    const M = x => map[x];
+    this.A = Int32Array.from(order, i => map[c.A[i]]);
+    this.B = Int32Array.from(order, i => map[c.B[i]]);
+    this.Gb = Uint8Array.from(order, i => c.G[i]);
+    this.Q = Int32Array.from(c.dffQ, M); this.D = Int32Array.from(c.dffD, M);
+    const N = this.net;
+    for (const key of ["pc", "instr", "memR", "addr", "wdata", "mask"]) N[key] = N[key].map(M);
+    N.Q = N.Q.map(bus => bus.map(M));
+    for (const key of ["we", "re", "halt"]) N[key] = M(N[key]);
+    this.nNets = k + n;
+    this.tmp = new Uint8Array(this.Q.length);
+    this.v = new Uint8Array(this.nNets);
+    this.blocks = c.blocks;
+    this.reset();
+  }
+  reset() { this.v.fill(0); this.v[1] = 1; this.halted = false; this.cycles = 0; }
+  get(nets) { let x = 0; const v = this.v; for (let i = nets.length - 1; i >= 0; i--) x = (x << 1) | v[nets[i]]; return x >>> 0; }
+  set(nets, x) { const v = this.v; for (let i = 0; i < nets.length; i++) v[nets[i]] = (x >>> i) & 1; }
+  run(lo, hi) {
+    const v = this.v, A = this.A, B = this.B, base = this.base;
+    for (let i = lo; i < hi; i++) v[base + i] = 1 ^ (v[A[i]] & v[B[i]]);
+  }
+  get pcVal() { return this.get(this.net.pc); }
+  reg(r) { return r === 0 ? 0 : this.get(this.net.Q[r]); }
+  step() {
+    if (this.halted) return false;
+    const N = this.net, v = this.v, bus = this.bus;
+    this.set(N.instr, bus.read32(this.get(N.pc)));
+    this.run(0, this.split);
+    const addr = this.get(N.addr);
+    this.set(N.memR, v[N.re] ? bus.read32(addr) : 0);
+    this.run(this.split, this.n);
+    if (v[N.we]) bus.write(addr, this.get(N.wdata), this.get(N.mask));
+    if (v[N.halt]) this.halted = true;
+    // rising clock edge: every flip-flop captures its D input at once
+    const Qa = this.Q, Da = this.D, t = this.tmp;
+    for (let k = 0; k < Qa.length; k++) t[k] = v[Da[k]];
+    for (let k = 0; k < Qa.length; k++) v[Qa[k]] = t[k];
+    this.cycles++;
+    return true;
+  }
+}
+
+/* =====================================================================
+   Memory bus (outside the chip): RAM, framebuffer and I/O ports
+   ===================================================================== */
+const MEM = { SIZE: 0x20000, FB: 0x10000, FBW: 64, FBH: 64, UART: 0x1F000, PRINT: 0x1F004, CYCLES: 0x1F008 };
+class Bus {
+  constructor(out) { this.mem = new Uint8Array(MEM.SIZE); this.out = out || (() => {}); this.cycles = () => 0; this.fbDirty = true; }
+  load(bytes) { this.mem.fill(0); this.mem.set(bytes, 0); this.fbDirty = true; }
+  read32(addr) {
+    const a = (addr >>> 0) & ~3;
+    if (a === MEM.CYCLES) return this.cycles() >>> 0;
+    if (a + 3 >= MEM.SIZE) return 0;
+    const m = this.mem;
+    return (m[a] | (m[a + 1] << 8) | (m[a + 2] << 16) | (m[a + 3] << 24)) >>> 0;
+  }
+  write(addr, data, mask) {
+    const a = (addr >>> 0) & ~3;
+    if (a === MEM.UART) { for (let k = 0; k < 4; k++) if (mask & (1 << k)) { this.out(String.fromCharCode((data >>> (8 * k)) & 255)); break; } return; }
+    if (a === MEM.PRINT) { if (mask === 15) this.out(String(data | 0)); return; }
+    if (a + 3 >= MEM.SIZE || a >= 0x1F000) return;
+    for (let k = 0; k < 4; k++) if (mask & (1 << k)) this.mem[a + k] = (data >>> (8 * k)) & 255;
+    if (a >= MEM.FB && a < MEM.FB + MEM.FBW * MEM.FBH) this.fbDirty = true;
+  }
+}
+
+/* =====================================================================
+   Reference model: the same ISA written as ordinary software.
+   The gate-level chip is checked against it, instruction by instruction.
+   ===================================================================== */
+class RefCPU {
+  constructor(bus) { this.bus = bus; this.x = new Int32Array(32); this.reset(); }
+  reset() { this.x.fill(0); this.pc = 0; this.halted = false; }
+  step() {
+    if (this.halted) return false;
+    const bus = this.bus, x = this.x, ins = bus.read32(this.pc);
+    const op = ins & 0x7F, rd = (ins >>> 7) & 31, f3 = (ins >>> 12) & 7, r1 = (ins >>> 15) & 31, r2 = (ins >>> 20) & 31, f7 = ins >>> 25;
+    const a = x[r1], b = x[r2];
+    const iI = ins >> 20;
+    const iS = ((ins >> 25) << 5) | ((ins >>> 7) & 31);
+    const iB = ((ins >> 31) << 12) | (((ins >>> 7) & 1) << 11) | (((ins >>> 25) & 63) << 5) | (((ins >>> 8) & 15) << 1);
+    const iU = ins & 0xFFFFF000;
+    const iJ = ((ins >> 31) << 20) | (ins & 0xFF000) | (((ins >>> 20) & 1) << 11) | (((ins >>> 21) & 1023) << 1);
+    let next = (this.pc + 4) >>> 0, w = null;
+    const alu = (f, p, q, alt) => {
+      switch (f) {
+        case 0: return alt ? (p - q) | 0 : (p + q) | 0;
+        case 1: return p << (q & 31);
+        case 2: return p < q ? 1 : 0;
+        case 3: return (p >>> 0) < (q >>> 0) ? 1 : 0;
+        case 4: return p ^ q;
+        case 5: return alt ? p >> (q & 31) : (p >>> (q & 31)) | 0;
+        case 6: return p | q;
+        default: return p & q;
+      }
+    };
+    switch (op) {
+      case 0x37: w = iU | 0; break;
+      case 0x17: w = (this.pc + iU) | 0; break;
+      case 0x6F: w = next | 0; next = (this.pc + iJ) >>> 0; break;
+      case 0x67: w = next | 0; next = ((a + iI) & ~1) >>> 0; break;
+      case 0x63: {
+        const c = [a === b, a !== b, false, false, a < b, a >= b, (a >>> 0) < (b >>> 0), (a >>> 0) >= (b >>> 0)][f3];
+        if (c) next = (this.pc + iB) >>> 0; break;
+      }
+      case 0x03: {
+        const ad = (a + iI) >>> 0, v = bus.read32(ad) >>> (8 * (ad & 3));
+        const sz = f3 & 3, sx = !(f3 & 4);
+        if (sz === 0) w = sx ? (v << 24) >> 24 : v & 255;
+        else if (sz === 1) w = sx ? (v << 16) >> 16 : v & 0xFFFF;
+        else w = v | 0;
+        break;
+      }
+      case 0x23: {
+        const ad = (a + iS) >>> 0, o = ad & 3, sz = f3 & 3;
+        let d = b >>> 0, m = 15;
+        if (sz === 0) { d = (b & 255) * 0x01010101; m = 1 << o; }
+        else if (sz === 1) { d = ((b & 0xFFFF) * 0x10001) >>> 0; m = (o & 2) ? 12 : 3; }
+        bus.write(ad, d >>> 0, m); break;
+      }
+      case 0x13: w = alu(f3, a, f3 === 1 || f3 === 5 ? iI & 31 : iI, f3 === 5 && (ins >>> 30) & 1); break;
+      case 0x33:
+        if (f7 === 1) { if (f3 !== 0) throw new Error("unsupported M instruction"); w = Math.imul(a, b); }
+        else w = alu(f3, a, b, (ins >>> 30) & 1);
+        break;
+      case 0x73: this.halted = true; next = this.pc; break;
+      default: break;
+    }
+    if (w !== null && rd) x[rd] = w;
+    this.pc = next;
+    return true;
+  }
+}
+
+/* =====================================================================
+   Assembler (RV32I + MUL, common pseudo-instructions)
+   ===================================================================== */
+const REGNAMES = ["zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6"];
+function assemble(src) {
+  const lines = src.split("\n");
+  const errors = [], syms = Object.create(null), out = [];
+  const lineOf = new Map();
+  const R = { add: [0, 0], sub: [0, 32], sll: [1, 0], slt: [2, 0], sltu: [3, 0], xor: [4, 0], srl: [5, 0], sra: [5, 32], or: [6, 0], and: [7, 0], mul: [0, 1] };
+  const I = { addi: 0, slti: 2, sltiu: 3, xori: 4, ori: 6, andi: 7 };
+  const SH = { slli: [1, 0], srli: [5, 0], srai: [5, 32] };
+  const LD = { lb: 0, lh: 1, lw: 2, lbu: 4, lhu: 5 }, ST = { sb: 0, sh: 1, sw: 2 };
+  const BR = { beq: 0, bne: 1, blt: 4, bge: 5, bltu: 6, bgeu: 7 };
+  const BRSWAP = { bgt: "blt", ble: "bge", bgtu: "bltu", bleu: "bgeu" };
+  const BRZ = { beqz: ["beq", 0], bnez: ["bne", 0], bltz: ["blt", 0], bgez: ["bge", 0], blez: ["bge", 1], bgtz: ["blt", 1] };
+
+  function stripComment(s) {
+    let q = null;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (q) { if (ch === "\\") i++; else if (ch === q) q = null; continue; }
+      if (ch === '"' || ch === "'") q = ch;
+      else if (ch === "#" || (ch === "/" && s[i + 1] === "/")) return s.slice(0, i);
+    }
+    return s;
+  }
+  function splitArgs(s) {
+    const r = []; let cur = "", q = null;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (q) { cur += ch; if (ch === "\\") { cur += s[++i] || ""; } else if (ch === q) q = null; continue; }
+      if (ch === '"' || ch === "'") { q = ch; cur += ch; continue; }
+      if (ch === ",") { r.push(cur.trim()); cur = ""; continue; }
+      cur += ch;
+    }
+    if (cur.trim() !== "" || r.length) r.push(cur.trim());
+    return r;
+  }
+  const unesc = s => s.replace(/\\(.)/g, (m, ch) => ({ n: "\n", t: "\t", "0": "\0", r: "\r" }[ch] ?? ch));
+  function reg(t) {
+    t = t.trim().toLowerCase();
+    if (t === "fp") return 8;
+    let i = REGNAMES.indexOf(t);
+    if (i >= 0) return i;
+    const m = /^x(\d+)$/.exec(t);
+    if (m && +m[1] < 32) return +m[1];
+    throw new Error(`unknown register "${t}"`);
+  }
+  function value(t, strict) {
+    t = t.trim();
+    if (!t) throw new Error("missing value");
+    if (/^'(\\.|.)'$/.test(t)) return unesc(t.slice(1, -1)).charCodeAt(0);
+    const parts = t.replace(/\s+/g, "").match(/[+-]?[^+-]+/g);
+    if (!parts) throw new Error(`bad expression "${t}"`);
+    let total = 0;
+    for (let p of parts) {
+      let sign = 1;
+      if (p[0] === "-") { sign = -1; p = p.slice(1); } else if (p[0] === "+") p = p.slice(1);
+      let v;
+      if (/^0x[0-9a-f]+$/i.test(p)) v = parseInt(p.slice(2), 16);
+      else if (/^0b[01]+$/i.test(p)) v = parseInt(p.slice(2), 2);
+      else if (/^\d+$/.test(p)) v = parseInt(p, 10);
+      else if (/^'(\\.|.)'$/.test(p)) v = unesc(p.slice(1, -1)).charCodeAt(0);
+      else if (/^[A-Za-z_.][\w.]*$/.test(p)) {
+        if (p in syms) v = syms[p];
+        else if (strict) throw new Error(`undefined symbol "${p}"`);
+        else return null;
+      } else throw new Error(`bad value "${p}"`);
+      total += sign * v;
+    }
+    return total;
+  }
+  let FINAL = false;
+  const val = t => { const v = value(t, FINAL); return v === null ? 0 : v; };
+  const fitsI = v => v >= -2048 && v <= 2047;
+  function liParts(v) {
+    v |= 0;
+    if (fitsI(v)) return [null, v];
+    const lo = ((v & 0xFFF) ^ 0x800) - 0x800;
+    return [((v - lo) >>> 12) & 0xFFFFF, lo];
+  }
+  // encoders
+  const encR = (f7, r2, r1, f3, rd, op) => ((f7 << 25) | (r2 << 20) | (r1 << 15) | (f3 << 12) | (rd << 7) | op) >>> 0;
+  const encI = (imm, r1, f3, rd, op) => { if (!fitsI(imm)) throw new Error(`immediate ${imm} out of range (−2048…2047)`); return (((imm & 0xFFF) << 20) | (r1 << 15) | (f3 << 12) | (rd << 7) | op) >>> 0; };
+  const encS = (imm, r2, r1, f3) => { if (!fitsI(imm)) throw new Error(`offset ${imm} out of range`); return ((((imm >> 5) & 127) << 25) | (r2 << 20) | (r1 << 15) | (f3 << 12) | ((imm & 31) << 7) | 0x23) >>> 0; };
+  const encB = (off, r1, r2, f3) => {
+    if (off & 1 || off < -4096 || off > 4094) throw new Error(`branch target out of range (${off} bytes)`);
+    return ((((off >> 12) & 1) << 31) | (((off >> 5) & 63) << 25) | (r2 << 20) | (r1 << 15) | (f3 << 12) | (((off >> 1) & 15) << 8) | (((off >> 11) & 1) << 7) | 0x63) >>> 0;
+  };
+  const encU = (imm, rd, op) => (((imm & 0xFFFFF) << 12) | (rd << 7) | op) >>> 0;
+  const encJ = (off, rd) => {
+    if (off & 1 || off < -(1 << 20) || off >= (1 << 20)) throw new Error("jump target out of range");
+    return ((((off >> 20) & 1) << 31) | (((off >> 1) & 1023) << 21) | (((off >> 11) & 1) << 20) | (((off >> 12) & 255) << 12) | (rd << 7) | 0x6F) >>> 0;
+  };
+  function memArg(t) {
+    const m = /^(.*)\((\s*\w+\s*)\)$/.exec(t.trim());
+    if (!m) throw new Error(`expected offset(register), got "${t}"`);
+    return [m[1].trim() === "" ? 0 : val(m[1]), reg(m[2])];
+  }
+
+  // returns list of words (pass 2) or count (pass 1)
+  function instr(mn, a, pc, final) {
+    const need = n => { if (a.length !== n) throw new Error(`${mn} takes ${n} operand${n === 1 ? "" : "s"}`); };
+    const tgt = t => { const v = value(t, final); return v === null ? 0 : v - pc; };
+    if (mn in R) { need(3); const [f3, f7] = R[mn]; return [encR(f7, reg(a[2]), reg(a[1]), f3, reg(a[0]), 0x33)]; }
+    if (mn in I) { need(3); return [encI(val(a[2]), reg(a[1]), I[mn], reg(a[0]), 0x13)]; }
+    if (mn in SH) { need(3); const s = val(a[2]); if (s < 0 || s > 31) throw new Error("shift amount must be 0…31"); return [encI(s | (SH[mn][1] << 5), reg(a[1]), SH[mn][0], reg(a[0]), 0x13)]; }
+    if (mn in LD) { need(2); const [o, r] = memArg(a[1]); return [encI(o, r, LD[mn], reg(a[0]), 0x03)]; }
+    if (mn in ST) { need(2); const [o, r] = memArg(a[1]); return [encS(o, reg(a[0]), r, ST[mn])]; }
+    if (mn in BR) { need(3); return [encB(final ? tgt(a[2]) : 0, reg(a[0]), reg(a[1]), BR[mn])]; }
+    if (mn in BRSWAP) { need(3); return [encB(final ? tgt(a[2]) : 0, reg(a[1]), reg(a[0]), BR[BRSWAP[mn]])]; }
+    if (mn in BRZ) { need(2); const [b, swap] = BRZ[mn]; const r = reg(a[0]); return [encB(final ? tgt(a[1]) : 0, swap ? 0 : r, swap ? r : 0, BR[b])]; }
+    switch (mn) {
+      case "lui": need(2); return [encU(val(a[1]), reg(a[0]), 0x37)];
+      case "auipc": need(2); return [encU(val(a[1]), reg(a[0]), 0x17)];
+      case "jal": if (a.length === 1) return [encJ(final ? tgt(a[0]) : 0, 1)]; need(2); return [encJ(final ? tgt(a[1]) : 0, reg(a[0]))];
+      case "jalr":
+        if (a.length === 1) return [encI(0, reg(a[0]), 0, 1, 0x67)];
+        if (a.length === 2) { const [o, r] = memArg(a[1]); return [encI(o, r, 0, reg(a[0]), 0x67)]; }
+        need(3); return [encI(val(a[2]), reg(a[1]), 0, reg(a[0]), 0x67)];
+      case "j": need(1); return [encJ(final ? tgt(a[0]) : 0, 0)];
+      case "call": need(1); return [encJ(final ? tgt(a[0]) : 0, 1)];
+      case "jr": need(1); return [encI(0, reg(a[0]), 0, 0, 0x67)];
+      case "ret": need(0); return [encI(0, 1, 0, 0, 0x67)];
+      case "nop": need(0); return [encI(0, 0, 0, 0, 0x13)];
+      case "mv": need(2); return [encI(0, reg(a[1]), 0, reg(a[0]), 0x13)];
+      case "not": need(2); return [encI(-1, reg(a[1]), 4, reg(a[0]), 0x13)];
+      case "neg": need(2); return [encR(32, reg(a[1]), 0, 0, reg(a[0]), 0x33)];
+      case "seqz": need(2); return [encI(1, reg(a[1]), 3, reg(a[0]), 0x13)];
+      case "snez": need(2); return [encR(0, reg(a[1]), 0, 3, reg(a[0]), 0x33)];
+      case "li": {
+        need(2);
+        let v;
+        try { v = value(a[1], true); } catch (e) { throw new Error(/undefined/.test(e.message) ? e.message + " (li needs a constant defined above it; use la for labels)" : e.message); }
+        const rd = reg(a[0]);
+        if (v < -2147483648 || v > 4294967295) throw new Error("value does not fit in 32 bits");
+        const [hi, lo] = liParts(v);
+        if (hi === null) return [encI(lo, 0, 0, rd, 0x13)];
+        return lo ? [encU(hi, rd, 0x37), encI(lo, rd, 0, rd, 0x13)] : [encU(hi, rd, 0x37)];
+      }
+      case "la": {
+        need(2);
+        const v = value(a[1], final), rd = reg(a[0]);
+        const [hi, lo] = liParts(v === null ? 0 : v);
+        return [encU(hi === null ? 0 : hi, rd, 0x37), encI(lo, rd, 0, rd, 0x13)];
+      }
+      case "ecall": need(0); return [0x00000073];
+      case "ebreak": need(0); return [0x00100073];
+      case "fence": return [0x0FF0000F];
+    }
+    throw new Error(`unknown instruction "${mn}"`);
+  }
+
+  function passes(final) {
+    FINAL = final;
+    let pc = 0; const bytes = [];
+    const emit8 = b => { bytes[pc] = b & 255; pc++; };
+    for (let ln = 0; ln < lines.length; ln++) {
+      let s = stripComment(lines[ln]).trim();
+      try {
+        let m;
+        while ((m = /^([A-Za-z_.][\w.]*)\s*:/.exec(s))) {
+          if (!final) { if (m[1] in syms) throw new Error(`label "${m[1]}" defined twice`); syms[m[1]] = pc; }
+          s = s.slice(m[0].length).trim();
+        }
+        if (!s) continue;
+        const sp = s.search(/\s/);
+        const mn = (sp < 0 ? s : s.slice(0, sp)).toLowerCase();
+        const rest = sp < 0 ? "" : s.slice(sp + 1).trim();
+        const args = rest ? splitArgs(rest) : [];
+        if (mn[0] === ".") {
+          switch (mn) {
+            case ".equ": case ".set": if (!final) syms[args[0]] = value(args[1], true); break;
+            case ".text": case ".data": case ".globl": case ".global": case ".section": break;
+            case ".word": args.forEach(t => { const v = final ? value(t, true) : 0; for (let k = 0; k < 4; k++) emit8(v >>> (8 * k)); }); break;
+            case ".half": args.forEach(t => { const v = final ? value(t, true) : 0; emit8(v); emit8(v >>> 8); }); break;
+            case ".byte": args.forEach(t => emit8(final ? value(t, true) : 0)); break;
+            case ".string": case ".asciz": case ".ascii": {
+              const mm = /^"((?:\\.|[^"\\])*)"$/.exec(rest);
+              if (!mm) throw new Error("expected a quoted string");
+              for (const ch of unesc(mm[1])) emit8(ch.charCodeAt(0));
+              if (mn !== ".ascii") emit8(0);
+              break;
+            }
+            case ".zero": case ".space": { const n = value(args[0], true); for (let k = 0; k < n; k++) emit8(0); break; }
+            case ".align": { const n = 1 << value(args[0], true); while (pc % n) emit8(0); break; }
+            default: throw new Error(`unknown directive "${mn}"`);
+          }
+          continue;
+        }
+        if (pc & 3) throw new Error("instruction is not word-aligned (add .align 2)");
+        const words = instr(mn, args, pc, final);
+        for (const w of words) { if (final) lineOf.set(pc, ln); for (let k = 0; k < 4; k++) emit8(w >>> (8 * k)); }
+      } catch (e) {
+        errors.push({ line: ln + 1, msg: e.message });
+      }
+      if (pc > 0xF000) { errors.push({ line: ln + 1, msg: "program is larger than 60 KiB" }); break; }
+    }
+    return bytes;
+  }
+  passes(false);
+  if (errors.length) return { errors, bytes: null };
+  const bytes = passes(true);
+  const img = new Uint8Array(bytes.length);
+  bytes.forEach((b, i) => { img[i] = b || 0; });
+  return { errors, bytes: img, lineOf, syms, lines };
+}
+
+if (typeof module !== "undefined") module.exports = { Circuit, buildCPU, GateCPU, Bus, RefCPU, assemble, MEM, REGNAMES, fullAdder, rippleAdder, shiftRight, multiplier, muxN, NOT, AND, OR, XOR, MUX };
+
+</script>
+<script>
+const PROGRAMS = [
+{ id: "hello", name: "Hello + Fibonacci", src:
+`# Prints a greeting, then Fibonacci numbers.
+# Memory-mapped I/O: a byte stored at UART prints a character,
+# a word stored at UART+4 prints a decimal number.
+.equ UART, 0x1F000
+
+main:
+    li   sp, 0xFF00          # stack at the top of RAM
+    li   s0, UART
+    la   a0, greeting
+    call puts
+    li   t0, 0               # a = fib(0)
+    li   t1, 1               # b = fib(1)
+    li   s1, 30              # how many to print
+fib_loop:
+    sw   t0, 4(s0)           # print a
+    li   t2, ' '
+    sb   t2, 0(s0)
+    add  t2, t0, t1          # next = a + b
+    mv   t0, t1
+    mv   t1, t2
+    addi s1, s1, -1
+    bnez s1, fib_loop
+    li   t2, '\\n'
+    sb   t2, 0(s0)
+    ebreak                   # stop the clock
+
+puts:                        # print the zero-terminated string at a0
+    lbu  t2, 0(a0)
+    beqz t2, puts_done
+    sb   t2, 0(s0)
+    addi a0, a0, 1
+    j    puts
+puts_done:
+    ret
+
+greeting:
+    .string "Hello from a CPU made of NAND gates.\\nFibonacci: "
+` },
+{ id: "primes", name: "Prime sieve", src:
+`# Sieve of Eratosthenes: every prime below 1000.
+.equ UART, 0x1F000
+.equ N, 1000
+
+main:
+    li   s0, UART
+    la   s1, sieve           # one byte per number, 1 = crossed out
+    li   s2, N
+    li   t0, 2               # i
+outer:
+    mul  t1, t0, t0          # start crossing out at i*i
+    bge  t1, s2, report
+    add  t2, s1, t0
+    lbu  t3, 0(t2)
+    bnez t3, next_i          # i is composite, skip it
+cross:
+    add  t2, s1, t1
+    li   t3, 1
+    sb   t3, 0(t2)
+    add  t1, t1, t0          # j += i
+    blt  t1, s2, cross
+next_i:
+    addi t0, t0, 1
+    j    outer
+
+report:
+    li   t0, 2
+    li   s3, 0               # number of primes found
+print_loop:
+    add  t2, s1, t0
+    lbu  t3, 0(t2)
+    bnez t3, skip
+    sw   t0, 4(s0)
+    li   t3, ' '
+    sb   t3, 0(s0)
+    addi s3, s3, 1
+skip:
+    addi t0, t0, 1
+    blt  t0, s2, print_loop
+    la   a0, summary
+    call puts
+    sw   s3, 4(s0)
+    li   t3, '\\n'
+    sb   t3, 0(s0)
+    ebreak
+
+puts:
+    lbu  t2, 0(a0)
+    beqz t2, puts_done
+    sb   t2, 0(s0)
+    addi a0, a0, 1
+    j    puts
+puts_done:
+    ret
+
+summary:
+    .string "\\nPrimes below 1000: "
+    .align 2
+sieve:
+    .zero 1000
+` },
+{ id: "fact", name: "Factorials", src:
+`# n! for n = 1..12 using the hardware multiplier (MUL).
+# 12! = 479001600 is the largest that fits in 32 bits.
+.equ UART, 0x1F000
+
+main:
+    li   s0, UART
+    li   t0, 1               # n
+    li   t1, 1               # n!
+    li   s1, 13
+loop:
+    mul  t1, t1, t0          # n! = (n-1)! * n
+    sw   t0, 4(s0)           # "n"
+    la   a0, middle
+    call puts                # "! = "
+    sw   t1, 4(s0)           # value
+    li   t2, '\\n'
+    sb   t2, 0(s0)
+    addi t0, t0, 1
+    blt  t0, s1, loop
+    ebreak
+
+puts:
+    lbu  t2, 0(a0)
+    beqz t2, puts_done
+    sb   t2, 0(s0)
+    addi a0, a0, 1
+    j    puts
+puts_done:
+    ret
+
+middle:
+    .string "! = "
+` },
+{ id: "mandel", name: "Mandelbrot", src:
+`# The Mandelbrot set on the 64x64 framebuffer.
+# Fixed-point maths with 10 fraction bits (1.0 = 1024).
+# Each pixel byte is a colour index (iteration count).
+.equ FB, 0x10000
+.equ MAXIT, 14
+
+main:
+    li   s0, FB              # pixel pointer
+    li   s1, 0               # row
+    li   s5, -1331           # cy = -1.3
+    li   s6, 4096            # escape radius squared = 4.0
+    li   s7, MAXIT
+    li   s8, 64
+row:
+    li   s2, 0               # column
+    li   s4, -2048           # cx = -2.0
+col:
+    mv   t0, s4              # x = cx
+    mv   t1, s5              # y = cy
+    li   t2, 0               # iteration
+iter:
+    mul  t3, t0, t0
+    srai t3, t3, 10          # x*x
+    mul  t4, t1, t1
+    srai t4, t4, 10          # y*y
+    add  t5, t3, t4
+    bgt  t5, s6, done        # escaped?
+    mul  t1, t0, t1
+    srai t1, t1, 9           # 2*x*y
+    add  t1, t1, s5          # y = 2xy + cy
+    sub  t0, t3, t4
+    add  t0, t0, s4          # x = x*x - y*y + cx
+    addi t2, t2, 1
+    blt  t2, s7, iter
+done:
+    sb   t2, 0(s0)
+    addi s0, s0, 1
+    addi s4, s4, 42          # step = 2.6 / 64
+    addi s2, s2, 1
+    blt  s2, s8, col
+    addi s5, s5, 42
+    addi s1, s1, 1
+    blt  s1, s8, row
+    ebreak
+` }
+];
+if (typeof module !== "undefined") module.exports = { PROGRAMS };
+
+</script>
+<script>
+(() => {
+"use strict";
+const $ = id => document.getElementById(id);
+const fmt = n => Math.round(n).toLocaleString("en-US");
+const hex = (x, w = 8) => "0x" + (x >>> 0).toString(16).padStart(w, "0");
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const dprOf = () => Math.min(window.devicePixelRatio || 1, 2);
+
+/* ---------------- machine ---------------- */
+let consoleText = "", conDirty = true;
+const bus = new Bus(s => { consoleText += s; if (consoleText.length > 24000) consoleText = consoleText.slice(-18000); conDirty = true; });
+const cpu = new GateCPU(bus);
+bus.cycles = () => cpu.cycles;
+const refBus = new Bus();
+const ref = new RefCPU(refBus);
+let refCount = 0;
+refBus.cycles = () => refCount;
+
+const C = cpu.net.c;
+const NG = cpu.n, NF = cpu.Q.length;
+const TRANSISTORS = 4 * (NG + 6 * NF);
+
+let asm = null, running = false, rate = Infinity, acc = 0;
+let verify = { state: "idle", checked: 0, msg: "" };
+let progId = "hello";
+
+function failVerify(msg) { verify.state = "bad"; verify.msg = msg; running = false; }
+function checkRegs() {
+  for (let r = 1; r < 32; r++) {
+    if ((cpu.reg(r) | 0) !== ref.x[r]) { failVerify(`x${r} differs at cycle ${cpu.cycles}`); return; }
+  }
+}
+function tick() {
+  cpu.step(); ref.step(); refCount++;
+  if (verify.state === "bad") return;
+  if (cpu.pcVal !== (ref.pc >>> 0)) { failVerify(`PC differs at cycle ${cpu.cycles}`); return; }
+  if ((cpu.cycles & 63) === 0 || cpu.halted) checkRegs();
+  if (verify.state !== "bad") { verify.state = "ok"; verify.checked = cpu.cycles; }
+  if (cpu.halted) running = false;
+}
+
+function load(src) {
+  const a = assemble(src);
+  const errs = $("errs");
+  errs.innerHTML = "";
+  if (a.errors.length) {
+    a.errors.slice(0, 8).forEach(e => { const li = document.createElement("li"); li.textContent = `line ${e.line}: ${e.msg}`; errs.appendChild(li); });
+    return false;
+  }
+  asm = a;
+  bus.load(a.bytes); refBus.load(a.bytes);
+  cpu.reset(); ref.reset(); refCount = 0;
+  consoleText = ""; conDirty = true;
+  verify = { state: "idle", checked: 0, msg: "" };
+  lastRegs.fill(-1);
+  dieDirtyAll = true;
+  return true;
+}
+function resetMachine() {
+  if (!asm) return;
+  bus.load(asm.bytes); refBus.load(asm.bytes);
+  cpu.reset(); ref.reset(); refCount = 0;
+  consoleText = ""; conDirty = true;
+  verify = { state: "idle", checked: 0, msg: "" };
+  running = false; dieDirtyAll = true;
+}
+
+/* ---------------- die map ---------------- */
+const die = { cv: $("die") };
+const pack = (r, g, b) => ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0;
+const COL = {
+  bg: pack(11, 14, 18), blk: pack(18, 23, 30),
+  off: pack(35, 44, 55), on: pack(242, 182, 50),
+  ffOff: pack(28, 44, 58), ffOn: pack(111, 200, 255)
+};
+const DISPLAY_NAME = { "Program counter": "PC & branch unit" };
+const groups = [];
+(function makeGroups() {
+  const byName = new Map();
+  const get = name => {
+    name = DISPLAY_NAME[name] || name;
+    if (!byName.has(name)) { const g = { name, gates: [], ffs: [] }; byName.set(name, g); groups.push(g); }
+    return byName.get(name);
+  };
+  for (let i = 0; i < NG; i++) get(cpu.blocks[cpu.Gb[i]]).gates.push(i);
+  for (let k = 0; k < NF; k++) get(C.blocks[C.dffBlk[k]]).ffs.push(k);
+  for (let i = groups.length - 1; i >= 0; i--) if (!groups[i].gates.length && !groups[i].ffs.length) groups.splice(i, 1);
+  groups.sort((a, b) => (b.gates.length + b.ffs.length) - (a.gates.length + a.ffs.length));
+  groups.forEach((g, i) => { g.id = i; g.act = 0; });
+})();
+const gateGroup = new Uint8Array(NG);
+groups.forEach(g => g.gates.forEach(i => { gateGroup[i] = g.id; }));
+
+function treemap(items, x, y, w, h, out) {
+  if (items.length === 1) { out.push({ g: items[0], x, y, w, h }); return; }
+  const size = it => it.gates.length + it.ffs.length;
+  const total = items.reduce((s, it) => s + size(it), 0);
+  let accu = 0, k = 0;
+  while (k < items.length - 1 && accu + size(items[k]) / 2 < total / 2) { accu += size(items[k]); k++; }
+  if (k === 0) { accu = size(items[0]); k = 1; }
+  const A = items.slice(0, k), B = items.slice(k), f = accu / total;
+  if (w >= h) { treemap(A, x, y, w * f, h, out); treemap(B, x + w * f, y, w * (1 - f), h, out); }
+  else { treemap(A, x, y, w, h * f, out); treemap(B, x, y + h * f, w, h * (1 - f), out); }
+}
+
+let dieDirtyAll = true;
+function buildDie() {
+  const cv = die.cv, w = Math.max(200, Math.round(cv.clientWidth)), h = Math.max(160, Math.round(cv.clientHeight));
+  const dpr = dprOf();
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  die.ctx = cv.getContext("2d"); die.w = w; die.h = h; die.dpr = dpr;
+  die.off = document.createElement("canvas"); die.off.width = w; die.off.height = h;
+  die.octx = die.off.getContext("2d");
+  die.img = die.octx.createImageData(w, h);
+  die.u32 = new Uint32Array(die.img.data.buffer);
+  die.u32.fill(COL.bg);
+  const rects = [];
+  treemap(groups, 2, 2, w - 4, h - 4, rects);
+  die.rects = rects;
+    die.gStart = new Int32Array(NG); die.gW = new Uint8Array(NG); die.gH = new Uint8Array(NG);
+  die.fStart = new Int32Array(NF); die.fW = new Uint8Array(NF); die.fH = new Uint8Array(NF);
+  for (const r of rects) {
+    const x0 = Math.round(r.x) + 2, y0 = Math.round(r.y) + 2;
+    const rw = Math.max(1, Math.round(r.x + r.w) - 2 - x0), rh = Math.max(1, Math.round(r.y + r.h) - 2 - y0);
+    for (let yy = 0; yy < rh; yy++) die.u32.fill(COL.blk, (y0 + yy) * w + x0, (y0 + yy) * w + x0 + rw);
+    const n = r.g.gates.length + r.g.ffs.length;
+    const cols = Math.min(rw, Math.max(1, Math.round(Math.sqrt(n * rw / rh))));
+    const rows = Math.ceil(n / cols);
+    const cw = rw / cols, chh = rh / rows;
+    const gap = cw >= 3 && chh >= 3 ? 1 : 0;
+    let idx = 0;
+    const place = (S, W, H, e) => {
+      const k = idx++, c0 = k % cols, r0 = Math.floor(k / cols);
+      const px = x0 + Math.floor(c0 * cw), py = y0 + Math.min(rh - 1, Math.floor(r0 * chh));
+      S[e] = py * w + px;
+      W[e] = Math.max(1, x0 + Math.floor((c0 + 1) * cw) - px - gap);
+      H[e] = Math.max(1, Math.min(y0 + rh, y0 + Math.floor((r0 + 1) * chh)) - py - gap);
+    };
+    for (const f of r.g.ffs) place(die.fStart, die.fW, die.fH, f);
+    for (const gi of r.g.gates) place(die.gStart, die.gW, die.gH, gi);
+    r.ix = x0; r.iy = y0; r.iw = rw; r.ih = rh;
+  }
+  die.lastG = new Uint8Array(NG).fill(2);
+  die.lastF = new Uint8Array(NF).fill(2);
+  dieDirtyAll = true;
+}
+function paintCell(u32, start, cw, chh, col, w) {
+  for (let yy = 0; yy < chh; yy++) { const row = start + yy * w; for (let xx = 0; xx < cw; xx++) u32[row + xx] = col; }
+}
+function renderDie() {
+  if (!die.ctx) return;
+  const v = cpu.v, base = cpu.base, u32 = die.u32, w = die.w;
+  const all = dieDirtyAll; dieDirtyAll = false;
+  for (let i = 0; i < NG; i++) {
+    const s = v[base + i];
+    if (!all && s === die.lastG[i]) continue;
+    die.lastG[i] = s;
+    paintCell(u32, die.gStart[i], die.gW[i], die.gH[i], s ? COL.on : COL.off, w);
+  }
+  const Q = cpu.Q;
+  for (let k = 0; k < NF; k++) {
+    const s = v[Q[k]];
+    if (!all && s === die.lastF[k]) continue;
+    die.lastF[k] = s;
+    paintCell(u32, die.fStart[k], die.fW[k], die.fH[k], s ? COL.ffOn : COL.ffOff, w);
+  }
+  die.octx.putImageData(die.img, 0, 0);
+  const ctx = die.ctx, dpr = die.dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(die.off, 0, 0, die.cv.width, die.cv.height);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.font = "500 10.5px 'JetBrains Mono', ui-monospace, monospace";
+  ctx.textBaseline = "top";
+  for (const r of die.rects) {
+    const a = Math.min(1, r.g.act * 2);
+    ctx.strokeStyle = `rgba(242,182,50,${0.18 + 0.7 * a})`;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(r.ix - 0.5, r.iy - 0.5, r.iw + 1, r.ih + 1);
+    const label = r.g.name, sub = fmt(r.g.gates.length) + (r.g.ffs.length ? ` + ${fmt(r.g.ffs.length)} ff` : "");
+    const tw = Math.max(ctx.measureText(label).width, ctx.measureText(sub).width) + 10;
+    if (r.iw < 46 || r.ih < 18) continue;
+    const two = r.ih >= 34 && tw <= r.iw;
+    const lw = Math.min(tw, r.iw);
+    ctx.fillStyle = "rgba(9,12,16,0.82)";
+    ctx.fillRect(r.ix, r.iy, lw, two ? 28 : 15);
+    ctx.save(); ctx.beginPath(); ctx.rect(r.ix, r.iy, lw, 30); ctx.clip();
+    ctx.fillStyle = "#e6ebf1"; ctx.fillText(label, r.ix + 5, r.iy + 2);
+    if (two) { ctx.fillStyle = "#8f9bab"; ctx.fillText(sub, r.ix + 5, r.iy + 15); }
+    ctx.restore();
+  }
+}
+let prevV = new Uint8Array(cpu.v.length);
+function measureActivity() {
+  const v = cpu.v, base = cpu.base;
+  const tog = new Float64Array(groups.length);
+  for (let i = 0; i < NG; i++) if (v[base + i] !== prevV[base + i]) tog[gateGroup[i]]++;
+  groups.forEach(g => { g.act = g.gates.length ? tog[g.id] / g.gates.length : 0; });
+}
+
+/* ---------------- framebuffer ---------------- */
+const fbCtx = $("fb").getContext("2d");
+const fbImg = fbCtx.createImageData(64, 64);
+const PAL = ["#0b1020", "#13224a", "#1b3470", "#1f4a94", "#1f63b0", "#1a7fc0", "#1f9bbf", "#39b5b0", "#6cc79a", "#a5d47f", "#d8d86a", "#f2c14e", "#f59f3a", "#f07a2e", "#000000", "#ffffff"]
+  .map(h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]);
+function renderFB() {
+  if (!bus.fbDirty) return;
+  bus.fbDirty = false;
+  const m = bus.mem, d = fbImg.data;
+  for (let i = 0; i < 4096; i++) { const c = PAL[m[MEM.FB + i] & 15]; d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = 255; }
+  fbCtx.putImageData(fbImg, 0, 0);
+}
+
+/* ---------------- bench UI ---------------- */
+PROGRAMS.forEach(p => {
+  const b = document.createElement("button");
+  b.className = "chip"; b.textContent = p.name; b.dataset.id = p.id;
+  b.addEventListener("click", () => {
+    progId = p.id; $("src").value = p.src; markProg();
+    if (load(p.src)) { running = true; updateRun(); }
+  });
+  $("progs").appendChild(b);
+});
+function markProg() { [...$("progs").children].forEach(b => b.setAttribute("aria-pressed", b.dataset.id === progId ? "true" : "false")); }
+
+const CLOCKS = [["2 Hz", 2], ["30 Hz", 30], ["1 kHz", 1000], ["Max", Infinity]];
+CLOCKS.forEach(([label, r]) => {
+  const b = document.createElement("button");
+  b.textContent = label; b.setAttribute("aria-pressed", r === rate ? "true" : "false");
+  b.addEventListener("click", () => { rate = r; acc = 0; [...$("clock").children].forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false")); });
+  $("clock").appendChild(b);
+});
+function updateRun() {
+  $("run").textContent = cpu.halted ? "Run again" : running ? "Pause" : "Run";
+  $("step").disabled = cpu.halted;
+}
+$("run").addEventListener("click", () => {
+  if (cpu.halted) { resetMachine(); running = true; }
+  else running = !running;
+  updateRun();
+});
+$("step").addEventListener("click", () => {
+  running = false;
+  prevV.set(cpu.v);
+  if (!cpu.halted) tick();
+  measureActivity();
+  updateRun(); renderAll(true);
+});
+$("reset").addEventListener("click", () => { resetMachine(); updateRun(); renderAll(true); });
+$("asm").addEventListener("click", () => {
+  progId = null; markProg();
+  if (load($("src").value)) { running = true; updateRun(); }
+});
+let radix = "hex";
+$("radix").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  radix = b.dataset.r; [...$("radix").children].forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+  lastRegs.fill(-1); renderRegs(true);
+});
+
+// registers
+const regEls = [];
+for (let r = 0; r < 32; r++) {
+  const d = document.createElement("div"); d.className = "reg";
+  d.innerHTML = `<span class="n">x${r} ${REGNAMES[r]}</span><span class="val"></span>`;
+  $("regs").appendChild(d); regEls.push({ d, val: d.lastChild });
+}
+const lastRegs = new Float64Array(32).fill(-1);
+function renderRegs(force) {
+  for (let r = 0; r < 32; r++) {
+    const x = cpu.reg(r) >>> 0;
+    if (x === lastRegs[r]) { if (!force) regEls[r].d.classList.remove("hot"); continue; }
+    const first = lastRegs[r] === -1;
+    lastRegs[r] = x;
+    regEls[r].val.textContent = radix === "hex" ? hex(x) : String(x | 0);
+    if (!first && !reduceMotion) regEls[r].d.classList.add("hot");
+  }
+}
+function esc(s) { return s.replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch])); }
+function renderListing() {
+  const el = $("listing");
+  if (!asm) { el.innerHTML = ""; return; }
+  const pc = cpu.pcVal;
+  let ln = asm.lineOf.get(pc);
+  if (ln === undefined) ln = 0;
+  const lo = Math.max(0, ln - 3), hi = Math.min(asm.lines.length, lo + 7);
+  let h = "";
+  for (let i = lo; i < hi; i++) h += `<div class="${i === ln ? "cur" : ""}"><span class="ln">${i + 1}</span>${esc(asm.lines[i].replace(/\t/g, "    ")) || " "}</div>`;
+  el.innerHTML = h;
+}
+let measured = 0, lastMeasureT = performance.now(), lastMeasureC = 0;
+function renderStatus() {
+  const pc = cpu.pcVal, ins = bus.read32(pc);
+  const state = cpu.halted ? "halted (ebreak)" : running ? "running" : "paused";
+  $("now").innerHTML = `<span>PC <b>${hex(pc, 5)}</b></span><span>instr <b>${hex(ins)}</b></span><span>cycle <b>${fmt(cpu.cycles)}</b></span><span><b>${state}</b></span>`;
+  const v = $("verify");
+  if (verify.state === "ok") { v.className = "pill ok"; v.textContent = `${fmt(verify.checked)} cycles match the reference model`; }
+  else if (verify.state === "bad") { v.className = "pill bad"; v.textContent = "mismatch: " + verify.msg; }
+  else { v.className = "pill idle"; v.textContent = "lockstep check waiting"; }
+}
+function renderStats() {
+  const clk = running ? measured : 0;
+  const clkTxt = clk >= 1000 ? (clk / 1000).toFixed(1) + " kHz" : Math.round(clk) + " Hz";
+  const tiles = [
+    ["NAND gates", fmt(NG), "after constant folding"],
+    ["Flip-flops", fmt(NF), "31 registers + PC"],
+    ["Transistors", "≈ " + fmt(TRANSISTORS), "CMOS equivalent"],
+    ["Clock", running ? clkTxt : "stopped", "one instruction per cycle"],
+    ["Gate evaluations", running ? fmt(clk * NG / 1e6) + " M/s" : "—", "every gate, every cycle"],
+    ["Instructions run", fmt(cpu.cycles), cpu.halted ? "program finished" : "this program"]
+  ];
+  $("stats").innerHTML = tiles.map(([k, v, s]) => `<div class="stat"><span class="k">${k}</span><span class="v">${v}</span><span class="s">${s}</span></div>`).join("");
+}
+function renderConsole() {
+  if (!conDirty) return; conDirty = false;
+  const el = $("console");
+  el.textContent = consoleText;
+  const c = document.createElement("span"); c.className = "cursor"; el.appendChild(c);
+  el.scrollTop = el.scrollHeight;
+}
+// block table
+const blockRows = groups.map(g => {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${g.name}</td><td class="num">${fmt(g.gates.length)}</td><td class="num">${g.ffs.length ? fmt(g.ffs.length) : "—"}</td><td><div class="bar"><i></i></div></td>`;
+  $("blocks").appendChild(tr);
+  return tr.querySelector("i");
+});
+function renderBlocks() { groups.forEach((g, i) => { blockRows[i].style.width = Math.min(100, g.act * 100) + "%"; }); }
+
+let lastPanel = 0;
+function renderAll(force) {
+  const now = performance.now();
+  renderDie(); renderFB(); renderConsole();
+  const fast = running && rate > 200;
+  if (force || !fast || now - lastPanel > 120) {
+    lastPanel = now;
+    renderRegs(force); renderListing(); renderStatus(); renderStats(); renderBlocks(); updateRun();
+  }
+}
+
+/* ---------------- main loop ---------------- */
+let lastT = performance.now();
+function frame(now) {
+  const dt = Math.min((now - lastT) / 1000, 0.1); lastT = now;
+  let stepped = 0;
+  if (running && !cpu.halted) {
+    prevV.set(cpu.v);
+    if (rate === Infinity) {
+      const t0 = performance.now();
+      do { for (let k = 0; k < 64 && running; k++) { tick(); stepped++; } } while (running && performance.now() - t0 < 12);
+    } else {
+      acc += rate * dt;
+      let n = Math.min(Math.floor(acc), 6000); acc -= n;
+      if (acc > 6000) acc = 0;
+      while (n-- > 0 && running) { tick(); stepped++; }
+    }
+    if (stepped) measureActivity();
+  }
+  if (now - lastMeasureT > 500) {
+    measured = (cpu.cycles - lastMeasureC) / ((now - lastMeasureT) / 1000);
+    lastMeasureT = now; lastMeasureC = cpu.cycles;
+  }
+  if (stepped || dieDirtyAll) renderAll(false);
+  else if (now - lastPanel > 400) renderAll(false);
+  requestAnimationFrame(frame);
+}
+
+/* ---------------- ladder ---------------- */
+function isolated(build) { const c = new Circuit(); build(c); return c.A.length; }
+const ins = (c, n) => Array.from({ length: n }, () => c.input());
+const LADDER = [
+  { nm: "NAND", ds: "The one primitive: output is 0 only when both inputs are 1", n: 1, code: "nand" },
+  { nm: "NOT · AND · OR", ds: "Inverter, then AND and OR from NANDs and inverters", n: "1 · 2 · 3", code: "gates" },
+  { nm: "XOR", ds: "Four NANDs; the heart of every adder", n: 4, code: "gates" },
+  { nm: "2-to-1 mux", ds: "Chooses between two signals; 3 NANDs plus a shared inverter", n: 4, code: "gates" },
+  { nm: "Full adder", ds: "Adds three bits; drawn live below", n: isolated(c => { const [a, b, x] = ins(c, 3); fullAdder(c, a, b, x); }), code: "fullAdder" },
+  { nm: "32-bit adder", ds: "32 full adders in a ripple-carry chain", n: isolated(c => rippleAdder(c, ins(c, 32), ins(c, 32), c.input())), code: "rippleAdder" },
+  { nm: "Barrel shifter", ds: "Shifts 0–31 places in five mux stages", n: isolated(c => shiftRight(c, ins(c, 32), ins(c, 5), c.input())), code: "shiftRight" },
+  { nm: "Register read port", ds: "Picks 1 of 32 registers with a 31-mux tree per bit", n: isolated(c => { const regs = Array.from({ length: 32 }, () => ins(c, 32)); muxN(c, regs, ins(c, 5)); }), code: "muxN" },
+  { nm: "32 × 32 multiplier", ds: "528 AND gates plus 31 rows of adders", n: isolated(c => multiplier(c, ins(c, 32), ins(c, 32))), code: "multiplier" },
+  { nm: "Si-32 CPU", ds: "Decoder, registers, ALU, multiplier, load/store, branch unit", n: NG, code: "buildCPU", top: true }
+];
+LADDER.forEach(r => {
+  const d = document.createElement("div"); d.className = "rung" + (r.top ? " top" : "");
+  d.innerHTML = `<span class="nm">${r.nm}</span><span class="ds">${r.ds}</span><span class="ct">${typeof r.n === "number" ? fmt(r.n) : r.n} NAND</span><button>code</button>`;
+  d.querySelector("button").addEventListener("click", () => { showCode(r.code); $("code-h").scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" }); });
+  $("ladder").appendChild(d);
+});
+
+/* ---------------- full adder schematic ---------------- */
+const fa = { cv: $("fa"), a: 1, b: 0, c: 1 };
+const FA_GATES = [
+  { id: "t1", x: 130, y: 90, in: ["A", "B"], ch: [100, 100] },
+  { id: "t2", x: 230, y: 50, in: ["A", "t1"], ch: [200, 185] },
+  { id: "t3", x: 230, y: 130, in: ["t1", "B"], ch: [185, 200] },
+  { id: "s1", x: 330, y: 90, in: ["t2", "t3"], ch: [295, 295] },
+  { id: "t4", x: 430, y: 155, in: ["s1", "Cin"], ch: [395, 380] },
+  { id: "t5", x: 530, y: 110, in: ["s1", "t4"], ch: [395, 480] },
+  { id: "t6", x: 530, y: 200, in: ["t4", "Cin"], ch: [480, 470] },
+  { id: "sum", x: 630, y: 155, in: ["t5", "t6"], ch: [590, 590] },
+  { id: "cout", x: 630, y: 240, in: ["t1", "t4"], ch: [165, 480] }
+];
+const FA_IN = { A: { x: 40, y: 50 }, B: { x: 40, y: 130 }, Cin: { x: 40, y: 215 } };
+function faEval() {
+  const c = new Circuit();
+  const a = c.input(), b = c.input(), ci = c.input();
+  fullAdder(c, a, b, ci);
+  const v = new Uint8Array(c.nNets); v[1] = 1; v[a] = fa.a; v[b] = fa.b; v[ci] = fa.c;
+  for (let i = 0; i < c.A.length; i++) v[c.O[i]] = 1 ^ (v[c.A[i]] & v[c.B[i]]);
+  const val = { A: fa.a, B: fa.b, Cin: fa.c };
+  FA_GATES.forEach((g, i) => { val[g.id] = v[c.O[i]]; });
+  return val;
+}
+function cssColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function drawFA() {
+  const cv = fa.cv, w = cv.clientWidth, h = cv.clientHeight, dpr = dprOf();
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const ctx = cv.getContext("2d"); const s = w / 730;
+  ctx.setTransform(dpr * s, 0, 0, dpr * s, 0, 0);
+  ctx.clearRect(0, 0, 730, 262);
+  const val = faEval();
+  const hi = cssColor("--accent"), lo = cssColor("--line"), ink = cssColor("--ink"), muted = cssColor("--muted"), surf = cssColor("--surface");
+  const src = id => FA_IN[id] ? FA_IN[id] : (g => ({ x: g.x + 20, y: g.y }))(FA_GATES.find(g => g.id === id));
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  // wires: draw low first, then high on top
+  for (const pass of [0, 1]) {
+    for (const g of FA_GATES) {
+      g.in.forEach((sid, k) => {
+        if (val[sid] !== pass) return;
+        const p = src(sid), py = g.y + (k ? 7 : -7), cx = g.ch[k];
+        ctx.strokeStyle = pass ? hi : lo; ctx.lineWidth = pass ? 2.2 : 1.6;
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(cx, p.y); ctx.lineTo(cx, py); ctx.lineTo(g.x - 14, py); ctx.stroke();
+      });
+    }
+    ["sum", "cout"].forEach(id => {
+      const g = FA_GATES.find(x => x.id === id);
+      if (val[id] !== pass) return;
+      ctx.strokeStyle = pass ? hi : lo; ctx.lineWidth = pass ? 2.2 : 1.6;
+      ctx.beginPath(); ctx.moveTo(g.x + 20, g.y); ctx.lineTo(684, g.y); ctx.stroke();
+    });
+  }
+  ctx.font = "600 12px 'JetBrains Mono', monospace"; ctx.textBaseline = "middle";
+  for (const g of FA_GATES) {
+    ctx.beginPath();
+    ctx.moveTo(g.x - 14, g.y - 14); ctx.lineTo(g.x, g.y - 14);
+    ctx.arc(g.x, g.y, 14, -Math.PI / 2, Math.PI / 2);
+    ctx.lineTo(g.x - 14, g.y + 14); ctx.closePath();
+    ctx.fillStyle = val[g.id] ? hi : surf; ctx.globalAlpha = val[g.id] ? 0.28 : 1; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = ink; ctx.lineWidth = 1.4; ctx.stroke();
+    ctx.beginPath(); ctx.arc(g.x + 17, g.y, 3, 0, Math.PI * 2); ctx.fillStyle = surf; ctx.fill(); ctx.stroke();
+    ctx.fillStyle = muted; ctx.font = "10px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
+    ctx.fillText(g.id, g.x - 2, g.y - 22);
+  }
+  ctx.textAlign = "left"; ctx.font = "600 12px 'JetBrains Mono', monospace";
+  for (const [k, p] of Object.entries(FA_IN)) {
+    ctx.fillStyle = val[k] ? hi : muted; ctx.fillText(`${k} ${val[k]}`, 2, p.y - 11);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = val.sum ? hi : muted; ctx.fillText(`Sum ${val.sum}`, 664, 140);
+  ctx.fillStyle = val.cout ? hi : muted; ctx.fillText(`Cout ${val.cout}`, 664, 225);
+  const total = fa.a + fa.b + fa.c;
+  $("fa-out").innerHTML = `<span>${fa.a} + ${fa.b} + ${fa.c} = <b>${total}</b> = binary <b>${val.cout}${val.sum}</b></span>`;
+}
+$("fa-tg").addEventListener("click", e => {
+  const b = e.target.closest("button.tg"); if (!b) return;
+  const k = b.dataset.k; fa[k] ^= 1;
+  b.setAttribute("aria-pressed", fa[k] ? "true" : "false");
+  b.textContent = `${k === "c" ? "Cin" : k.toUpperCase()} = ${fa[k]}`;
+  drawFA();
+});
+
+/* ---------------- source viewer ---------------- */
+const SOURCES = {
+  nand: ["nand()", () => Circuit.prototype.nand.toString()],
+  gates: ["NOT · AND · OR · XOR · MUX", () => [NOT, AND, OR, XOR, MUX].map(f => f.toString()).join("\n\n")],
+  fullAdder: ["fullAdder", () => fullAdder.toString()],
+  rippleAdder: ["rippleAdder", () => rippleAdder.toString()],
+  shiftRight: ["shiftRight", () => shiftRight.toString()],
+  muxN: ["muxN", () => muxN.toString()],
+  multiplier: ["multiplier", () => multiplier.toString()],
+  buildCPU: ["buildCPU (whole chip)", () => buildCPU.toString()],
+  sim: ["simulator clock step", () => "// GateCPU.prototype.run\n" + GateCPU.prototype.run.toString() + "\n\n// GateCPU.prototype.step\n" + GateCPU.prototype.step.toString()]
+};
+let codeKey = "fullAdder";
+Object.entries(SOURCES).forEach(([k, [label]]) => {
+  const b = document.createElement("button"); b.className = "chip"; b.textContent = label; b.dataset.k = k;
+  b.addEventListener("click", () => showCode(k));
+  $("code-tabs").appendChild(b);
+});
+function showCode(k) {
+  codeKey = k;
+  [...$("code-tabs").children].forEach(b => b.setAttribute("aria-pressed", b.dataset.k === k ? "true" : "false"));
+  const raw = SOURCES[k][1]();
+  // re-indent methods that were nested inside the class body
+  const lines = raw.split("\n");
+  const ind = Math.min(...lines.slice(1).filter(l => l.trim()).map(l => l.match(/^ */)[0].length), 99);
+  $("code").textContent = lines.map((l, i) => i && ind > 0 && ind < 99 ? l.slice(ind) : l).join("\n");
+}
+
+/* ---------------- boot ---------------- */
+$("h-gates").textContent = fmt(NG);
+$("h-ffs").textContent = fmt(NF);
+$("scale").textContent = `At 4 transistors per CMOS NAND and 6 NANDs per flip-flop, this is about ${fmt(TRANSISTORS)} transistors: more than an Intel 8086 (about 29,000) and less than an 80386 (about 275,000).`;
+showCode("fullAdder");
+const first = PROGRAMS[0];
+$("src").value = first.src; markProg();
+load(first.src);
+buildDie();
+drawFA();
+// run the first program to completion synchronously so the page opens in a finished, real state
+running = true;
+let guard = 0; while (running && guard++ < 100000) tick();
+measureActivity(); running = false;
+renderAll(true);
+let rz;
+const ro = new ResizeObserver(() => { clearTimeout(rz); rz = setTimeout(() => { buildDie(); drawFA(); renderAll(true); }, 100); });
+ro.observe(die.cv); ro.observe(fa.cv);
+const onTheme = () => drawFA();
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", onTheme);
+new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { drawFA(); dieDirtyAll = true; renderAll(true); });
+requestAnimationFrame(frame);
+})();
+
+</script>
+</body>
+</html>
